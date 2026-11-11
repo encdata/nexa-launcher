@@ -154,6 +154,61 @@ class HandleView {
                     }
                     return true
                 }
+                "setImageScaleType" -> {
+                    val aid = m.params?.get("aid")?.asInt
+                    val id = m.params?.get("id")?.asInt
+                    val scaleType = m.params?.get("scaleType")?.asString
+                    val a = activities[aid]
+                    val o = overlays[aid]
+                    if (id != null && scaleType != null) {
+                        fun apply(view: ImageView?) {
+                            view?.scaleType = when (scaleType) {
+                                "fit_xy" -> ImageView.ScaleType.FIT_XY
+                                "fit_center" -> ImageView.ScaleType.FIT_CENTER
+                                else -> return
+                            }
+                        }
+                        if (a != null) {
+                            V0Shared.runOnUIThreadActivityStarted(a) {
+                                apply(it.findViewReimplemented<ImageView>(id))
+                            }
+                        }
+                        if (o != null) {
+                            Util.runOnUIThreadBlocking {
+                                apply(o.root.findViewReimplemented<ImageView>(id))
+                            }
+                        }
+                    }
+                    return true
+                }
+                "setLayoutDirection" -> {
+                    val aid = m.params?.get("aid")?.asInt
+                    val id = m.params?.get("id")?.asInt
+                    val direction = m.params?.get("direction")?.asString
+                    val a = activities[aid]
+                    val o = overlays[aid]
+                    if (id != null && direction != null) {
+                        fun apply(view: View?) {
+                            view?.layoutDirection = when (direction) {
+                                "ltr" -> View.LAYOUT_DIRECTION_LTR
+                                "rtl" -> View.LAYOUT_DIRECTION_RTL
+                                "inherit" -> View.LAYOUT_DIRECTION_INHERIT
+                                else -> return
+                            }
+                        }
+                        if (a != null) {
+                            V0Shared.runOnUIThreadActivityStarted(a) {
+                                apply(it.findViewReimplemented<View>(id))
+                            }
+                        }
+                        if (o != null) {
+                            Util.runOnUIThreadBlocking {
+                                apply(o.root.findViewReimplemented<View>(id))
+                            }
+                        }
+                    }
+                    return true
+                }
                 "setMargin" -> {
                     if (m.params != null) {
                         val aid = m.params?.get("aid")?.asInt

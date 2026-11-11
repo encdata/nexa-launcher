@@ -475,6 +475,41 @@ class HandleView(val v: V0Proto, val main: OutputStream, val activities: Mutable
         })
     }
 
+    fun setImageScaleType(m: SetImageScaleTypeRequest) {
+        handler.handleView(m.v, SetImageScaleTypeResponse.newBuilder(), { ret, v: ImageView, _, _ ->
+            when (m.scaleType!!) {
+                SetImageScaleTypeRequest.ScaleType.FIT_XY -> v.scaleType = ImageView.ScaleType.FIT_XY
+                SetImageScaleTypeRequest.ScaleType.FIT_CENTER -> v.scaleType = ImageView.ScaleType.FIT_CENTER
+                SetImageScaleTypeRequest.ScaleType.UNRECOGNIZED -> {
+                    ret.success = false
+                    ret.code = Error.INVALID_ENUM
+                    return@handleView
+                }
+            }
+            ret.success = true
+        }, {
+            it.success = false
+        })
+    }
+
+    fun setLayoutDirection(m: SetLayoutDirectionRequest) {
+        handler.handleView(m.v, SetLayoutDirectionResponse.newBuilder(), { ret, v: android.view.View, _, _ ->
+            when (m.direction!!) {
+                SetLayoutDirectionRequest.Direction.LTR -> v.layoutDirection = android.view.View.LAYOUT_DIRECTION_LTR
+                SetLayoutDirectionRequest.Direction.RTL -> v.layoutDirection = android.view.View.LAYOUT_DIRECTION_RTL
+                SetLayoutDirectionRequest.Direction.INHERIT -> v.layoutDirection = android.view.View.LAYOUT_DIRECTION_INHERIT
+                SetLayoutDirectionRequest.Direction.UNRECOGNIZED -> {
+                    ret.success = false
+                    ret.code = Error.INVALID_ENUM
+                    return@handleView
+                }
+            }
+            ret.success = true
+        }, {
+            it.success = false
+        })
+    }
+
     fun setBuffer(m: SetBufferRequest) {
         handler.handleView(m.v, SetBufferResponse.newBuilder(), { ret, v: ImageView, _, _ ->
             val buffer = buffers[m.buffer]

@@ -1750,6 +1750,37 @@ message SetImageResponse {
   Error code = 2;
 }
 
+/* Sets how an ImageView scales its bitmap inside its bounds. */
+message SetImageScaleTypeRequest {
+  View v = 1;
+  enum ScaleType {
+    FIT_XY = 0;
+    FIT_CENTER = 1;
+  }
+  ScaleType scaleType = 2;
+}
+
+message SetImageScaleTypeResponse {
+  bool success = 1;
+  Error code = 2;
+}
+
+/* Sets the layout direction of a View. */
+message SetLayoutDirectionRequest {
+  View v = 1;
+  enum Direction {
+    LTR = 0;
+    RTL = 1;
+    INHERIT = 2;
+  }
+  Direction direction = 2;
+}
+
+message SetLayoutDirectionResponse {
+  bool success = 1;
+  Error code = 2;
+}
+
 /*
 Creates a shared memory buffer.
 
@@ -2691,6 +2722,8 @@ message Method {
     SelectItemRequest selectItem = 233;
     SetClickableRequest setClickable = 234;
     SetCheckedRequest setChecked = 235;
+    SetImageScaleTypeRequest setImageScaleType = 236;
+    SetLayoutDirectionRequest setLayoutDirection = 237;
     
     
     // RemoteViews methods
