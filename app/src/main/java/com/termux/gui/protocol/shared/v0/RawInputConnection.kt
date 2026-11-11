@@ -6,7 +6,11 @@ import android.view.KeyEvent
 import android.view.View
 import android.view.inputmethod.*
 
-class RawInputConnection(private val keyListener: View.OnKeyListener) : InputConnection {
+class RawInputConnection(
+    private val keyListener: View.OnKeyListener,
+    private val textListener: (String) -> Unit = {}
+) : InputConnection {
+    private var composingText = ""
     
     override fun getTextBeforeCursor(n: Int, flags: Int): CharSequence? {
         return null
@@ -29,27 +33,38 @@ class RawInputConnection(private val keyListener: View.OnKeyListener) : InputCon
     }
 
     override fun deleteSurroundingText(beforeLength: Int, afterLength: Int): Boolean {
-        return false
+        if (composingText.isNotEmpty() && beforeLength > 0) {
+            composingText = ""
+        } else {
+            if (beforeLength > 0) textListener("\u007f".repeat(beforeLength))
+            if (afterLength > 0) textListener("\u001b[3~".repeat(afterLength))
+        }
+        return true
     }
 
     override fun deleteSurroundingTextInCodePoints(beforeLength: Int, afterLength: Int): Boolean {
-        return false
+        return deleteSurroundingText(beforeLength, afterLength)
     }
 
     override fun setComposingText(text: CharSequence?, newCursorPosition: Int): Boolean {
-        return false
+        composingText = text?.toString() ?: ""
+        return true
     }
 
     override fun setComposingRegion(start: Int, end: Int): Boolean {
-        return false
+        return true
     }
 
     override fun finishComposingText(): Boolean {
-        return false
+        if (composingText.isNotEmpty()) textListener(composingText)
+        composingText = ""
+        return true
     }
 
     override fun commitText(text: CharSequence?, newCursorPosition: Int): Boolean {
-        return false
+        if (text != null) textListener(text.toString())
+        composingText = ""
+        return true
     }
 
     override fun commitCompletion(text: CompletionInfo?): Boolean {
@@ -65,7 +80,8 @@ class RawInputConnection(private val keyListener: View.OnKeyListener) : InputCon
     }
 
     override fun performEditorAction(editorAction: Int): Boolean {
-        return false
+        textListener("\r")
+        return true
     }
 
     override fun performContextMenuAction(id: Int): Boolean {

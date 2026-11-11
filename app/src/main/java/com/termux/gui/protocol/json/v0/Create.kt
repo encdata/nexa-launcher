@@ -14,6 +14,7 @@ import com.google.android.material.tabs.TabLayout
 import com.termux.gui.ConnectionHandler
 import com.termux.gui.Util
 import com.termux.gui.protocol.shared.v0.*
+import com.termux.gui.views.KeyboardImageView
 import com.termux.gui.views.SnappingHorizontalScrollView
 import com.termux.gui.views.SnappingNestedScrollView
 import java.io.DataOutputStream
@@ -124,9 +125,16 @@ class Create {
                     if (m.method == "createImageView") {
                         var id = -1
                         V0Shared.runOnUIThreadActivityStartedBlocking(a) {
-                            val v = ImageView(it)
+                            val keyboard = m.params?.get("keyboard")?.asBoolean ?: false
+                            val v = if (keyboard) KeyboardImageView(it) else ImageView(it)
                             id = Util.generateViewID(rand, it)
                             v.id = id
+                            if (v is KeyboardImageView) {
+                                v.isFocusable = true
+                                v.isFocusableInTouchMode = true
+                                Util.setKeyListenerJSON(v, aid, eventQueue)
+                                v.textListener = { text -> Util.sendKeyTextJSON(v, aid, text, eventQueue) }
+                            }
                             Util.createViewOptionalsJSON(v, m.params)
                             Util.setViewActivity(it, v, parent)
                         }
@@ -498,10 +506,17 @@ class Create {
                         return
                     }
                     if (m.method == "createImageView") {
-                        val v = ImageView(app)
+                        val keyboard = m.params?.get("keyboard")?.asBoolean ?: false
+                        val v = if (keyboard) KeyboardImageView(app) else ImageView(app)
                         val id = Util.generateViewIDRaw(rand, o.usedIds)
                         Util.runOnUIThreadBlocking {
                             v.id = id
+                            if (v is KeyboardImageView) {
+                                v.isFocusable = true
+                                v.isFocusableInTouchMode = true
+                                Util.setKeyListenerJSON(v, aid, eventQueue)
+                                v.textListener = { text -> Util.sendKeyTextJSON(v, aid, text, eventQueue) }
+                            }
                             Util.createViewOptionalsJSON(v, m.params)
                             V0Shared.setViewOverlay(o, v, parent)
                         }

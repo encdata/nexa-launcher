@@ -938,38 +938,12 @@ class HandleView {
                         val allow = m.params?.get("allow")?.asBoolean
                         if (a != null && id != null && allow != null) {
                             if (allow == true) {
-                                if (! Settings.instance.javascript) {
-                                    val data = Thread.currentThread().id.toString()
-                                    val r = GUIWebViewJavascriptDialog.Companion.Request()
-                                    GUIWebViewJavascriptDialog.requestMap[data] = r
-                                    val i = Intent(app, GUIWebViewJavascriptDialog::class.java)
-                                    i.data = Uri.parse(data)
-                                    V0Shared.runOnUIThreadActivityStarted(a) {
-                                        it.startActivity(i)
-                                    }
-                                    synchronized(r.monitor) {
-                                        while (r.allow == null)
-                                            r.monitor.wait()
-                                    }
-                                    GUIWebViewJavascriptDialog.requestMap.remove(data)
-                                    if (r.allow == true) {
-                                        V0Shared.runOnUIThreadActivityStarted(a) { it ->
-                                            //noinspection SetJavaScriptEnabled
-                                            it.findViewReimplemented<WebView>(id)
-                                                ?.let { it.settings.javaScriptEnabled = true }
-                                        }
-                                        Util.sendMessage(out, ConnectionHandler.gson.toJson(true))
-                                    } else {
-                                        Util.sendMessage(out, ConnectionHandler.gson.toJson(false))
-                                    }
-                                } else {
-                                    V0Shared.runOnUIThreadActivityStarted(a) { it ->
-                                        //noinspection SetJavaScriptEnabled
-                                        it.findViewReimplemented<WebView>(id)
-                                            ?.let { it.settings.javaScriptEnabled = true }
-                                    }
-                                    Util.sendMessage(out, ConnectionHandler.gson.toJson(true))
+                                V0Shared.runOnUIThreadActivityStarted(a) { it ->
+                                    //noinspection SetJavaScriptEnabled
+                                    it.findViewReimplemented<WebView>(id)
+                                        ?.let { it.settings.javaScriptEnabled = true }
                                 }
+                                Util.sendMessage(out, ConnectionHandler.gson.toJson(true))
                             } else {
                                 V0Shared.runOnUIThreadActivityStarted(a) { it ->
                                     it.findViewReimplemented<WebView>(id)?.let { it.settings.javaScriptEnabled = false }

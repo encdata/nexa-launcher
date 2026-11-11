@@ -111,7 +111,22 @@ class HandleCreate(val v: V0Proto, val main: OutputStream, val activities: Mutab
                     it.isFocusable = true
                 }
                 it.isFocusableInTouchMode = true
-                it.setOnKeyListener(ProtoUtils.keyListener(eventQueue, View.newBuilder().setAid(m.data.aid).setId(it.id).build()))
+                val view = View.newBuilder().setAid(m.data.aid).setId(it.id).build()
+                it.setOnKeyListener(ProtoUtils.keyListener(eventQueue, view))
+                it.textListener = { text ->
+                    var index = 0
+                    while (index < text.length) {
+                        val codePoint = Character.codePointAt(text, index)
+                        val key = GUIProt0.KeyEvent.newBuilder()
+                            .setV(view)
+                            .setCode(android.view.KeyEvent.KEYCODE_UNKNOWN)
+                            .setCodePoint(codePoint)
+                            .setAction(KeyAction.ACTION_DOWN)
+                            .build()
+                        eventQueue.offer(Event.newBuilder().setKeyEvent(key).build())
+                        index += Character.charCount(codePoint)
+                    }
+                }
             }
         } else {
             create.createView<ImageView>(m) {}

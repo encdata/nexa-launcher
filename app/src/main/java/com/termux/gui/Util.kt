@@ -348,6 +348,34 @@ class Util {
             } else (TextView::class.java.getDeclaredField("mListeners").get(v) as ArrayList<*>).clear()
         }
 
+        fun setKeyListenerJSON(v: View, aid: Int, eventQueue: LinkedBlockingQueue<ConnectionHandler.Event>) {
+            v.setOnKeyListener { _, _, event ->
+                var modifiers = 0
+                if (event.isShiftPressed) modifiers = modifiers or 3
+                if (event.isCtrlPressed) modifiers = modifiers or 12
+                if (event.isAltPressed) modifiers = modifiers or 16
+                if (event.isFunctionPressed) modifiers = modifiers or 32
+                if (event.isCapsLockOn) modifiers = modifiers or 64
+                if (event.isNumLockOn) modifiers = modifiers or 256
+                val value = mapOf(
+                    "aid" to aid,
+                    "id" to v.id,
+                    "action" to event.action,
+                    "code" to event.keyCode,
+                    "codePoint" to event.unicodeChar,
+                    "modifiers" to modifiers,
+                    "flags" to event.flags
+                )
+                eventQueue.offer(ConnectionHandler.Event("key", ConnectionHandler.gson.toJsonTree(value)))
+                true
+            }
+        }
+
+        fun sendKeyTextJSON(v: View, aid: Int, text: String, eventQueue: LinkedBlockingQueue<ConnectionHandler.Event>) {
+            val value = mapOf("aid" to aid, "id" to v.id, "text" to text)
+            eventQueue.offer(ConnectionHandler.Event("key", ConnectionHandler.gson.toJsonTree(value)))
+        }
+
 
         /**
          * Set the touch listener for a View.

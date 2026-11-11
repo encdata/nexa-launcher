@@ -582,31 +582,9 @@ class HandleView(val v: V0Proto, val main: OutputStream, val activities: Mutable
     fun allowJS(m: AllowJavascriptRequest) {
         handler.handleView(m.v, AllowJavascriptResponse.newBuilder(), { ret, v: WebView, c, _ ->
             if (m.allow) {
-                if (! Settings.instance.javascript) {
-                    val data = Thread.currentThread().id.toString()
-                    val r = GUIWebViewJavascriptDialog.Companion.Request()
-                    GUIWebViewJavascriptDialog.requestMap[data] = r
-                    val i = Intent(c, GUIWebViewJavascriptDialog::class.java)
-                    i.data = Uri.parse(data)
-                    c.startActivity(i)
-                    synchronized(r.monitor) {
-                        while (r.allow == null)
-                            r.monitor.wait()
-                    }
-                    GUIWebViewJavascriptDialog.requestMap.remove(data)
-                    if (r.allow == true) {
-                        v.settings.javaScriptEnabled = true
-                        ret.allowed = true
-                        ret.success = true
-                    } else {
-                        ret.allowed = false
-                        ret.success = true
-                    }
-                } else {
-                    v.settings.javaScriptEnabled = true
-                    ret.allowed = true
-                    ret.success = true
-                }
+                v.settings.javaScriptEnabled = true
+                ret.allowed = true
+                ret.success = true
             } else {
                 v.settings.javaScriptEnabled = false
                 ret.allowed = false
