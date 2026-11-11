@@ -26,7 +26,7 @@ jobs:
           sdkmanager "platforms;android-34" "build-tools;34.0.0" "ndk;23.1.7779620" "cmake;3.22.1"
       - name: build apk
         run: ./gradlew assembleDebugMinify
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: termux-gui-debug-minified
           path: app/build/outputs/apk/debugMinify/app-debugMinify.apk
