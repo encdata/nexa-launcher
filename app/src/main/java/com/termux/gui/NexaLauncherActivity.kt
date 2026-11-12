@@ -1,0 +1,135 @@
+package com.termux.gui
+
+import android.app.ActivityManager
+import android.content.Intent
+import android.content.pm.PackageManager
+import android.net.Uri
+import android.os.Bundle
+import android.widget.TextView
+import androidx.appcompat.app.AlertDialog
+import androidx.appcompat.app.AppCompatActivity
+
+class NexaLauncherActivity : AppCompatActivity() {
+    companion object {
+        private const val RUN_COMMAND_PERMISSION = "com.termux.permission.RUN_COMMAND"
+        private const val REQUEST_RUN_COMMAND = 1
+        private const val RUN_COMMAND_ACTION = "com.termux.RUN_COMMAND"
+        private const val TERMUX_PACKAGE = "com.termux"
+        private const val TERMUX_RUN_COMMAND_SERVICE = "com.termux.app.RunCommandService"
+        private const val EXTRA_COMMAND_PATH = "com.termux.RUN_COMMAND_PATH"
+        private const val EXTRA_ARGUMENTS = "com.termux.RUN_COMMAND_ARGUMENTS"
+        private const val EXTRA_WORKDIR = "com.termux.RUN_COMMAND_WORKDIR"
+        private const val EXTRA_BACKGROUND = "com.termux.RUN_COMMAND_BACKGROUND"
+    }
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        setContentView(TextView(this).apply {
+            text = "Starting Nexa..."
+            textSize = 18f
+            gravity = android.view.Gravity.CENTER
+        })
+
+        if (showExistingNexa()) return
+        if (checkSelfPermission(RUN_COMMAND_PERMISSION) == PackageManager.PERMISSION_GRANTED) {
+            startNexa()
+        } else {
+            requestPermissions(arrayOf(RUN_COMMAND_PERMISSION), REQUEST_RUN_COMMAND)
+        }
+    }
+
+    private fun showExistingNexa(): Boolean {
+        val task = getSystemService(ActivityManager::class.java).appTasks.firstOrNull {
+            it.taskInfo.baseIntent.component?.className == GUIActivity::class.java.name
+        } ?: return false
+        task.moveToFront()
+        finish()
+        return true
+    }
+
+    private fun startNexa() {
+        val command = """
+            NEXA_DIR="${'$'}HOME/nexa"
+            STATE_DIR="${'$'}HOME/.cache/nexa"
+            PID_FILE="${'$'}STATE_DIR/pid"
+            LAUNCH_FILE="${'$'}STATE_DIR/launch"
+            mkdir -p "${'$'}STATE_DIR" || exit 1
+
+            REMOTE_UPDATED=0
+            if [ ! -d "${'$'}NEXA_DIR/.git" ]; then
+                git clone https://github.com/encdata/nexa.git "${'$'}NEXA_DIR" || exit 1
+            else
+                PREVIOUS_REMOTE=$(git -C "${'$'}NEXA_DIR" rev-parse refs/remotes/origin/main 2>/dev/null || true)
+                git -C "${'$'}NEXA_DIR" fetch origin || exit 1
+                REMOTE_HEAD=$(git -C "${'$'}NEXA_DIR" rev-parse refs/remotes/origin/main) || exit 1
+                if [ -n "${'$'}PREVIOUS_REMOTE" ] && [ "${'$'}PREVIOUS_REMOTE" != "${'$'}REMOTE_HEAD" ]; then
+                    REMOTE_UPDATED=1
+                fi
+            fi
+
+            PID=$(cat "${'$'}PID_FILE" 2>/dev/null || true)
+            RUNNING=0
+            if [ -n "${'$'}PID" ] && kill -0 "${'$'}PID" 2>/dev/null; then
+                PROCESS=$(ps -p "${'$'}PID" -o args= 2>/dev/null || true)
+                case "${'$'}PROCESS" in *"${'$'}NEXA_DIR/main.py"*) RUNNING=1;; esac
+            fi
+
+            if [ "${'$'}RUNNING" -eq 1 ] && [ "${'$'}REMOTE_UPDATED" -eq 1 ]; then
+                kill "${'$'}PID" 2>/dev/null || true
+                while kill -0 "${'$'}PID" 2>/dev/null; do sleep 0.1; done
+                RUNNING=0
+            fi
+            if [ "${'$'}REMOTE_UPDATED" -eq 1 ]; then
+                git -C "${'$'}NEXA_DIR" reset --hard "${'$'}REMOTE_HEAD" || exit 1
+            fi
+            if [ "${'$'}RUNNING" -eq 1 ]; then
+                touch "${'$'}LAUNCH_FILE"
+                exit 0
+            fi
+
+            touch "${'$'}LAUNCH_FILE"
+            echo "${'$'}${'$'}" > "${'$'}PID_FILE"
+            cd "${'$'}NEXA_DIR" || exit 1
+            exec python "${'$'}NEXA_DIR/main.py" --background-wait
+        """.trimIndent()
+
+        val intent = Intent(RUN_COMMAND_ACTION).apply {
+            setClassName(TERMUX_PACKAGE, TERMUX_RUN_COMMAND_SERVICE)
+            putExtra(EXTRA_COMMAND_PATH, "/data/data/com.termux/files/usr/bin/sh")
+            putExtra(EXTRA_ARGUMENTS, arrayOf("-c", command))
+            putExtra(EXTRA_WORKDIR, "~/")
+            putExtra(EXTRA_BACKGROUND, true)
+        }
+
+        try {
+            startService(intent)
+            finish()
+        } catch (e: Exception) {
+            AlertDialog.Builder(this)
+                .setTitle("Could not start Nexa")
+                .setMessage("Termux could not run the launcher. Check that Termux is installed and external app commands are enabled.")
+                .setPositiveButton("ok") { _, _ -> finish() }
+                .show()
+        }
+    }
+
+    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode != REQUEST_RUN_COMMAND) return
+        if (grantResults.firstOrNull() == PackageManager.PERMISSION_GRANTED) {
+            startNexa()
+            return
+        }
+        AlertDialog.Builder(this)
+            .setTitle("Termux permission needed")
+            .setMessage("Allow this app to run commands in Termux so it can start Nexa.")
+            .setPositiveButton("open app settings") { _, _ ->
+                startActivity(Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+                    data = Uri.parse("package:$packageName")
+                })
+                finish()
+            }
+            .setNegativeButton("close") { _, _ -> finish() }
+            .show()
+    }
+}
