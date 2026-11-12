@@ -4,7 +4,6 @@ import android.annotation.SuppressLint
 import android.content.Context
 import android.content.Intent
 import android.content.res.ColorStateList
-import android.graphics.BitmapFactory
 import android.net.Uri
 import android.os.Build
 import android.util.Base64
@@ -35,6 +34,7 @@ import com.google.gson.JsonElement
 import com.google.gson.JsonNull
 import com.google.gson.JsonPrimitive
 import com.termux.gui.*
+import com.termux.gui.protocol.shared.v0.BitmapCache
 import com.termux.gui.protocol.shared.v0.DataClasses
 import com.termux.gui.protocol.shared.v0.GUIWebViewClient
 import com.termux.gui.protocol.shared.v0.RecyclerListAdapter
@@ -157,7 +157,7 @@ class HandleView {
                     val o = overlays[aid]
                     if (img != null && id != null && (a != null || o != null)) {
                         val bin = Base64.decode(img, Base64.DEFAULT)
-                        val bitmap = BitmapFactory.decodeByteArray(bin, 0, bin.size)
+                        val bitmap = BitmapCache.decode(bin)
                         if (a != null) {
                             V0Shared.runOnUIThreadActivityStarted(a) {
                                 it.findViewReimplemented<ImageView>(id)?.setImageBitmap(bitmap)

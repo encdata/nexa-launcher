@@ -2,7 +2,6 @@ package com.termux.gui.protocol.shared.v0
 
 import android.content.Context
 import android.graphics.Bitmap
-import android.graphics.BitmapFactory
 import android.util.Base64
 import android.util.TypedValue
 import android.view.Gravity
@@ -175,7 +174,7 @@ class RecyclerListAdapter(
     companion object {
         fun decodeImage(bytes: ByteArray): Bitmap? {
             if (bytes.isEmpty()) return null
-            return BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+            return BitmapCache.decode(bytes)
         }
 
         fun fromJson(context: Context, values: JsonArray?, images: JsonObject? = null): List<Item> {
@@ -192,7 +191,7 @@ class RecyclerListAdapter(
                 }
                 val bitmap = if (encoded.isNullOrEmpty()) null else decoded.getOrPut(encoded) {
                     val bytes = Base64.decode(encoded, Base64.DEFAULT)
-                    BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+                    BitmapCache.decode(bytes)
                 }
                 Item(
                     text = row.get("text")?.takeUnless { it.isJsonNull }?.asString.orEmpty(),

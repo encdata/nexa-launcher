@@ -4,7 +4,6 @@ import android.annotation.SuppressLint
 import android.content.Context
 import android.content.Intent
 import android.content.res.ColorStateList
-import android.graphics.BitmapFactory
 import android.hardware.HardwareBuffer
 import android.net.Uri
 import android.os.Build
@@ -23,6 +22,7 @@ import com.google.android.material.tabs.TabLayout
 import com.termux.gui.*
 import com.termux.gui.protocol.protobuf.ProtoUtils
 import com.termux.gui.protocol.protobuf.v0.GUIProt0.*
+import com.termux.gui.protocol.shared.v0.BitmapCache
 import com.termux.gui.protocol.shared.v0.DataClasses
 import com.termux.gui.protocol.shared.v0.GUIWebViewClient
 import com.termux.gui.protocol.shared.v0.RecyclerListAdapter
@@ -489,7 +489,7 @@ class HandleView(val v: V0Proto, val main: OutputStream, val activities: Mutable
     fun setImage(m: SetImageRequest) {
         handler.handleView(m.v, SetImageResponse.newBuilder(), { ret, v: ImageView, _, _ ->
             val bin = m.image.toByteArray()
-            val bitmap = BitmapFactory.decodeByteArray(bin, 0, bin.size)
+            val bitmap = BitmapCache.decode(bin)
             v.setImageBitmap(bitmap)
             ret.success = true
         }, {

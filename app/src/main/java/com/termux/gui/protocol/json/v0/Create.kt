@@ -3,6 +3,9 @@ package com.termux.gui.protocol.json.v0
 import android.content.Context
 import android.os.Build
 import android.text.method.LinkMovementMethod
+import android.util.Base64
+import android.util.TypedValue
+import android.view.Gravity
 import android.view.inputmethod.EditorInfo
 import android.webkit.ConsoleMessage
 import android.webkit.WebView
@@ -22,6 +25,7 @@ import com.termux.gui.views.SnappingNestedScrollView
 import java.io.DataOutputStream
 import java.util.*
 import java.util.concurrent.LinkedBlockingQueue
+import kotlin.math.roundToInt
 
 class Create {
     companion object {
@@ -35,6 +39,92 @@ class Create {
             val o = overlays[aid]
             if (aid != null) {
                 if (a != null) {
+                    if (m.method == "createViewBatch") {
+                        val specifications = m.params?.get("views")?.asJsonArray
+                            ?: throw IllegalArgumentException("createViewBatch requires views")
+                        val ids = ArrayList<Int>(specifications.size())
+                        V0Shared.runOnUIThreadActivityStartedBlocking(a) { activity ->
+                            val density = activity.resources.displayMetrics.density
+                            fun dimension(specification: com.google.gson.JsonObject, name: String): Int {
+                                val value = specification.get(name) ?: return android.view.ViewGroup.LayoutParams.WRAP_CONTENT
+                                if (value.isJsonPrimitive && value.asJsonPrimitive.isString) {
+                                    return when (value.asString) {
+                                        "MATCH_PARENT" -> android.view.ViewGroup.LayoutParams.MATCH_PARENT
+                                        "WRAP_CONTENT" -> android.view.ViewGroup.LayoutParams.WRAP_CONTENT
+                                        else -> value.asInt
+                                    }
+                                }
+                                return (value.asFloat * density).roundToInt()
+                            }
+                            fun margin(specification: com.google.gson.JsonObject, name: String): Int =
+                                ((specification.get("margins")?.asJsonObject?.get(name)?.asFloat ?: 0f)
+                                    * density).roundToInt()
+
+                            for (specificationElement in specifications) {
+                                val specification = specificationElement.asJsonObject
+                                val parentIndex = specification.get("parentIndex")?.asInt
+                                val parentId = if (parentIndex != null) ids[parentIndex]
+                                    else specification.get("parent")?.asInt ?: parent
+                                val parentView = parentId?.let {
+                                    activity.findViewReimplemented<android.view.ViewGroup>(it)
+                                } ?: throw IllegalArgumentException("batch view needs a parent")
+                                val view = when (specification.get("type")?.asString) {
+                                    "frame" -> FrameLayout(activity)
+                                    "linear" -> LinearLayout(activity).apply {
+                                        orientation = if (specification.get("vertical")?.asBoolean == false)
+                                            LinearLayout.HORIZONTAL else LinearLayout.VERTICAL
+                                    }
+                                    "text" -> TextView(activity).apply {
+                                        text = specification.get("text")?.asString ?: ""
+                                        specification.get("textSize")?.asFloat?.let {
+                                            setTextSize(TypedValue.COMPLEX_UNIT_SP, it)
+                                        }
+                                        specification.get("textColor")?.asInt?.let(::setTextColor)
+                                        if (specification.get("gravity")?.asString == "center") {
+                                            gravity = Gravity.CENTER
+                                        }
+                                    }
+                                    "image" -> ImageView(activity).apply {
+                                        scaleType = ImageView.ScaleType.FIT_CENTER
+                                        specification.get("image")?.asString?.let {
+                                            val bytes = Base64.decode(it, Base64.DEFAULT)
+                                            setImageBitmap(BitmapCache.decode(bytes))
+                                        }
+                                    }
+                                    else -> throw IllegalArgumentException("unsupported batch view type")
+                                }
+                                val id = Util.generateViewID(rand, activity)
+                                view.id = id
+                                specification.get("background")?.asInt?.let(view::setBackgroundColor)
+                                specification.get("visibility")?.asInt?.let {
+                                    view.visibility = when (it) {
+                                        0 -> android.view.View.GONE
+                                        1 -> android.view.View.INVISIBLE
+                                        else -> android.view.View.VISIBLE
+                                    }
+                                }
+                                val width = dimension(specification, "width")
+                                val height = dimension(specification, "height")
+                                val weight = specification.get("weight")?.asFloat ?: 0f
+                                val left = margin(specification, "left")
+                                val top = margin(specification, "top")
+                                val params = if (parentView is LinearLayout) {
+                                    LinearLayout.LayoutParams(width, height, weight)
+                                } else {
+                                    FrameLayout.LayoutParams(width, height)
+                                }
+                                params.setMargins(
+                                    left + (specification.get("x")?.asFloat?.times(density)?.roundToInt() ?: 0),
+                                    top + (specification.get("y")?.asFloat?.times(density)?.roundToInt() ?: 0),
+                                    margin(specification, "right"),
+                                    margin(specification, "bottom"))
+                                parentView.addView(view, params)
+                                ids.add(id)
+                            }
+                        }
+                        Util.sendMessage(out, ConnectionHandler.gson.toJson(ids))
+                        return
+                    }
                     if (m.method == "createTextView") {
                         var id = -1
                         V0Shared.runOnUIThreadActivityStartedBlocking(a) {
