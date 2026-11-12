@@ -62,9 +62,12 @@ class Create {
                                 ?: throw IllegalArgumentException("unknown reusable object: $name")
                             val properties = m.params?.get("properties")?.asJsonObject
                             val mutableProperties = setOf(
-                                "background", "bottom", "clickable", "gravity", "height", "image",
-                                "left", "margins", "right", "text", "textColor", "textSize", "top",
-                                "visibility", "weight", "width", "x", "y")
+                                "align", "background", "blockinput", "bottom", "checked", "clickable",
+                                "enabled", "fillViewport", "gravity", "height", "image", "inputtype",
+                                "left", "nobar",
+                                "line", "margins", "max", "options", "progress", "right", "selected",
+                                "singleline", "text", "textColor", "textSize", "top", "visibility",
+                                "weight", "width", "x", "y")
                             template.deepCopy().also { copy ->
                                 for (viewElement in copy) {
                                     val view = viewElement.asJsonObject
@@ -111,17 +114,60 @@ class Create {
                                         orientation = if (specification.get("vertical")?.asBoolean == false)
                                             LinearLayout.HORIZONTAL else LinearLayout.VERTICAL
                                     }
+                                    "scroll" -> NestedScrollView(activity).apply {
+                                        isFillViewport = specification.get("fillViewport")?.asBoolean ?: true
+                                        if (specification.get("nobar")?.asBoolean == true) {
+                                            isVerticalScrollBarEnabled = false
+                                        }
+                                    }
+                                    "horizontal_scroll" -> HorizontalScrollView(activity).apply {
+                                        isFillViewport = specification.get("fillViewport")?.asBoolean ?: true
+                                        if (specification.get("nobar")?.asBoolean == true) {
+                                            isHorizontalScrollBarEnabled = false
+                                        }
+                                    }
+                                    "edit" -> EditText(activity).apply {
+                                        when (specification.get("inputtype")?.asString ?: "text") {
+                                            "text" -> inputType = EditorInfo.TYPE_CLASS_TEXT or EditorInfo.TYPE_TEXT_VARIATION_NORMAL
+                                            "textMultiLine" -> inputType = EditorInfo.TYPE_CLASS_TEXT or EditorInfo.TYPE_TEXT_FLAG_MULTI_LINE or EditorInfo.TYPE_TEXT_VARIATION_NORMAL
+                                            "phone" -> inputType = EditorInfo.TYPE_CLASS_PHONE
+                                            "date" -> inputType = EditorInfo.TYPE_CLASS_DATETIME or EditorInfo.TYPE_DATETIME_VARIATION_DATE
+                                            "time" -> inputType = EditorInfo.TYPE_CLASS_DATETIME or EditorInfo.TYPE_DATETIME_VARIATION_TIME
+                                            "datetime" -> inputType = EditorInfo.TYPE_CLASS_DATETIME or EditorInfo.TYPE_DATETIME_VARIATION_NORMAL
+                                            "number" -> inputType = EditorInfo.TYPE_CLASS_NUMBER or EditorInfo.TYPE_NUMBER_VARIATION_NORMAL
+                                            "numberDecimal" -> inputType = EditorInfo.TYPE_CLASS_NUMBER or EditorInfo.TYPE_NUMBER_FLAG_DECIMAL or EditorInfo.TYPE_NUMBER_VARIATION_NORMAL
+                                            "numberPassword" -> inputType = EditorInfo.TYPE_CLASS_NUMBER or EditorInfo.TYPE_NUMBER_VARIATION_PASSWORD
+                                            "numberSigned" -> inputType = EditorInfo.TYPE_CLASS_NUMBER or EditorInfo.TYPE_NUMBER_FLAG_SIGNED or EditorInfo.TYPE_NUMBER_VARIATION_NORMAL
+                                            "numberDecimalSigned" -> inputType = EditorInfo.TYPE_CLASS_NUMBER or EditorInfo.TYPE_NUMBER_FLAG_DECIMAL or EditorInfo.TYPE_NUMBER_FLAG_SIGNED or EditorInfo.TYPE_NUMBER_VARIATION_NORMAL
+                                            "textEmailAddress" -> inputType = EditorInfo.TYPE_CLASS_TEXT or EditorInfo.TYPE_TEXT_VARIATION_EMAIL_ADDRESS
+                                            "textPassword" -> inputType = EditorInfo.TYPE_CLASS_TEXT or EditorInfo.TYPE_TEXT_VARIATION_PASSWORD
+                                        }
+                                        if (specification.get("singleline")?.asBoolean == true) {
+                                            inputType = EditorInfo.TYPE_CLASS_TEXT
+                                        }
+                                        if (specification.get("blockinput")?.asBoolean == true) {
+                                            inputType = EditorInfo.TYPE_CLASS_TEXT or EditorInfo.TYPE_TEXT_VARIATION_FILTER or EditorInfo.TYPE_TEXT_FLAG_NO_SUGGESTIONS
+                                        }
+                                        if (specification.get("line")?.asBoolean == false) {
+                                            setBackgroundResource(android.R.color.transparent)
+                                        }
+                                        setText(specification.get("text")?.asString ?: "", TextView.BufferType.EDITABLE)
+                                    }
+                                    "checkbox" -> CheckBox(activity).apply {
+                                        text = specification.get("text")?.asString ?: ""
+                                        isChecked = specification.get("checked")?.asBoolean ?: false
+                                    }
+                                    "switch" -> SwitchCompat(activity).apply {
+                                        text = specification.get("text")?.asString ?: ""
+                                        isChecked = specification.get("checked")?.asBoolean ?: false
+                                    }
+                                    "spinner" -> Spinner(activity)
+                                    "slider" -> SeekBar(activity).apply {
+                                        max = specification.get("max")?.asInt ?: 100
+                                        progress = specification.get("progress")?.asInt ?: 0
+                                    }
                                     "text" -> TextView(activity).apply {
                                         text = specification.get("text")?.asString ?: ""
-                                        specification.get("textSize")?.asFloat?.let {
-                                            setTextSize(TypedValue.COMPLEX_UNIT_SP, it)
-                                        }
-                                        specification.get("textColor")?.asInt?.let(::setTextColor)
-                                        when (specification.get("gravity")?.asString) {
-                                            "center" -> gravity = Gravity.CENTER
-                                            "center_vertical" -> gravity = Gravity.CENTER_VERTICAL
-                                            "start_center_vertical" -> gravity = Gravity.START or Gravity.CENTER_VERTICAL
-                                        }
                                     }
                                     "image" -> ImageView(activity).apply {
                                         scaleType = ImageView.ScaleType.FIT_CENTER
@@ -134,8 +180,49 @@ class Create {
                                 }
                                 val id = Util.generateViewID(rand, activity)
                                 view.id = id
+                                if (view is TextView) {
+                                    specification.get("textSize")?.asFloat?.let {
+                                        view.setTextSize(TypedValue.COMPLEX_UNIT_SP, it)
+                                    }
+                                    specification.get("textColor")?.asInt?.let { view.setTextColor(it) }
+                                    view.gravity = when (specification.get("gravity")?.asString) {
+                                        "start_top" -> Gravity.START or Gravity.TOP
+                                        "start_center_vertical" -> Gravity.START or Gravity.CENTER_VERTICAL
+                                        "start_bottom" -> Gravity.START or Gravity.BOTTOM
+                                        "center_top" -> Gravity.CENTER_HORIZONTAL or Gravity.TOP
+                                        "center" -> Gravity.CENTER
+                                        "center_bottom" -> Gravity.CENTER_HORIZONTAL or Gravity.BOTTOM
+                                        "end_top" -> Gravity.END or Gravity.TOP
+                                        "end_center_vertical" -> Gravity.END or Gravity.CENTER_VERTICAL
+                                        "end_bottom" -> Gravity.END or Gravity.BOTTOM
+                                        "center_vertical" -> Gravity.CENTER_VERTICAL
+                                        else -> view.gravity
+                                    }
+                                }
                                 if (specification.get("clickable")?.asBoolean == true) {
                                     Util.setClickListener(view, aid, true, eventQueue)
+                                }
+                                if (view is Spinner) {
+                                    val options = specification.get("options")?.asJsonArray
+                                        ?.map { it.asString } ?: emptyList()
+                                    view.adapter = ArrayAdapter(activity, R.layout.spinner_text, options)
+                                    specification.get("selected")?.asInt?.let { view.setSelection(it) }
+                                    Util.setSpinnerListener(view, aid, eventQueue)
+                                }
+                                if (view is SeekBar) {
+                                    view.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+                                        override fun onProgressChanged(seekBar: SeekBar?, progress: Int,
+                                                                       fromUser: Boolean) {
+                                            if (fromUser) {
+                                                eventQueue.offer(ConnectionHandler.Event("progress",
+                                                    ConnectionHandler.gson.toJsonTree(mapOf(
+                                                        "aid" to aid, "id" to id, "progress" to progress))))
+                                            }
+                                        }
+
+                                        override fun onStartTrackingTouch(seekBar: SeekBar?) {}
+                                        override fun onStopTrackingTouch(seekBar: SeekBar?) {}
+                                    })
                                 }
                                 specification.get("background")?.asInt?.let(view::setBackgroundColor)
                                 specification.get("visibility")?.asInt?.let {
@@ -145,6 +232,7 @@ class Create {
                                         else -> android.view.View.VISIBLE
                                     }
                                 }
+                                specification.get("enabled")?.asBoolean?.let { view.isEnabled = it }
                                 val width = dimension(specification, "width")
                                 val height = dimension(specification, "height")
                                 val weight = specification.get("weight")?.asFloat ?: 0f
@@ -160,6 +248,21 @@ class Create {
                                     top + (specification.get("y")?.asFloat?.times(density)?.roundToInt() ?: 0),
                                     margin(specification, "right"),
                                     margin(specification, "bottom"))
+                                val gravity = when (specification.get("align")?.asString) {
+                                    "center" -> Gravity.CENTER
+                                    "start" -> Gravity.START or Gravity.CENTER_VERTICAL
+                                    "end" -> Gravity.END or Gravity.CENTER_VERTICAL
+                                    "top" -> Gravity.TOP
+                                    "bottom" -> Gravity.BOTTOM
+                                    "center_vertical" -> Gravity.CENTER_VERTICAL
+                                    "center_horizontal" -> Gravity.CENTER_HORIZONTAL
+                                    "fill" -> Gravity.FILL
+                                    else -> null
+                                }
+                                if (gravity != null) {
+                                    (params as? LinearLayout.LayoutParams)?.gravity = gravity
+                                    (params as? FrameLayout.LayoutParams)?.gravity = gravity
+                                }
                                 parentView.addView(view, params)
                                 ids.add(id)
                             }

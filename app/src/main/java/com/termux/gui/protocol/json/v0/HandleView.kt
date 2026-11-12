@@ -268,6 +268,45 @@ class HandleView {
                     }
                     return true
                 }
+                "setLayoutGravity" -> {
+                    val aid = m.params?.get("aid")?.asInt
+                    val id = m.params?.get("id")?.asInt
+                    val alignment = m.params?.get("align")?.asString
+                    val a = activities[aid]
+                    val o = overlays[aid]
+                    val gravity = when (alignment) {
+                        "center" -> Gravity.CENTER
+                        "start" -> Gravity.START or Gravity.CENTER_VERTICAL
+                        "end" -> Gravity.END or Gravity.CENTER_VERTICAL
+                        "top" -> Gravity.TOP
+                        "bottom" -> Gravity.BOTTOM
+                        "center_vertical" -> Gravity.CENTER_VERTICAL
+                        "center_horizontal" -> Gravity.CENTER_HORIZONTAL
+                        "fill" -> Gravity.FILL
+                        else -> null
+                    }
+                    if (id != null && gravity != null) {
+                        fun apply(view: View?) {
+                            val params = view?.layoutParams
+                            when (params) {
+                                is LinearLayout.LayoutParams -> params.gravity = gravity
+                                is FrameLayout.LayoutParams -> params.gravity = gravity
+                            }
+                            if (view != null && params != null) view.layoutParams = params
+                        }
+                        if (a != null) {
+                            V0Shared.runOnUIThreadActivityStarted(a) {
+                                apply(it.findViewReimplemented<View>(id))
+                            }
+                        }
+                        if (o != null) {
+                            Util.runOnUIThreadBlocking {
+                                apply(o.root.findViewReimplemented<View>(id))
+                            }
+                        }
+                    }
+                    return true
+                }
                 "setPadding" -> {
                     if (m.params != null) {
                         val aid = m.params?.get("aid")?.asInt
@@ -1003,6 +1042,28 @@ class HandleView {
                             if (o != null) {
                                 Util.runOnUIThreadBlocking {
                                     o.root.findViewReimplemented<View>(id)?.isClickable = clickable
+                                }
+                            }
+                        }
+                    }
+                    return true
+                }
+                "setEnabled" -> {
+                    if (m.params != null) {
+                        val aid = m.params?.get("aid")?.asInt
+                        val id = m.params?.get("id")?.asInt
+                        val enabled = m.params?.get("enabled")?.asBoolean
+                        val a = activities[aid]
+                        val o = overlays[aid]
+                        if (id != null && enabled != null) {
+                            if (a != null) {
+                                V0Shared.runOnUIThreadActivityStarted(a) {
+                                    it.findViewReimplemented<View>(id)?.isEnabled = enabled
+                                }
+                            }
+                            if (o != null) {
+                                Util.runOnUIThreadBlocking {
+                                    o.root.findViewReimplemented<View>(id)?.isEnabled = enabled
                                 }
                             }
                         }
