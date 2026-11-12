@@ -39,9 +39,46 @@ class Create {
             val o = overlays[aid]
             if (aid != null) {
                 if (a != null) {
-                    if (m.method == "createViewBatch") {
-                        val specifications = m.params?.get("views")?.asJsonArray
-                            ?: throw IllegalArgumentException("createViewBatch requires views")
+                    if (m.method == "registerReusableObject") {
+                        val name = m.params?.get("name")?.asString
+                            ?: throw IllegalArgumentException("registerReusableObject requires a name")
+                        val views = m.params?.get("views")?.asJsonArray
+                            ?: throw IllegalArgumentException("registerReusableObject requires views")
+                        if (name.isBlank() || views.size() == 0) {
+                            throw IllegalArgumentException("reusable object needs a name and at least one view")
+                        }
+                        a.reusableObjects[name] = views.deepCopy()
+                        Util.sendMessage(out, ConnectionHandler.gson.toJson(true))
+                        return
+                    }
+                    if (m.method == "createViewBatch" || m.method == "createReusableObject") {
+                        val specifications = if (m.method == "createViewBatch") {
+                            m.params?.get("views")?.asJsonArray
+                                ?: throw IllegalArgumentException("createViewBatch requires views")
+                        } else {
+                            val name = m.params?.get("name")?.asString
+                                ?: throw IllegalArgumentException("createReusableObject requires a name")
+                            val template = a.reusableObjects[name]
+                                ?: throw IllegalArgumentException("unknown reusable object: $name")
+                            val properties = m.params?.get("properties")?.asJsonObject
+                            val mutableProperties = setOf(
+                                "background", "bottom", "clickable", "gravity", "height", "image",
+                                "left", "margins", "right", "text", "textColor", "textSize", "top",
+                                "visibility", "weight", "width", "x", "y")
+                            template.deepCopy().also { copy ->
+                                for (viewElement in copy) {
+                                    val view = viewElement.asJsonObject
+                                    val key = view.get("key")?.asString ?: continue
+                                    val overrides = properties?.getAsJsonObject(key) ?: continue
+                                    for ((property, value) in overrides.entrySet()) {
+                                        if (property !in mutableProperties) {
+                                            throw IllegalArgumentException("unsupported reusable object property: $property")
+                                        }
+                                        view.add(property, value.deepCopy())
+                                    }
+                                }
+                            }
+                        }
                         val ids = ArrayList<Int>(specifications.size())
                         V0Shared.runOnUIThreadActivityStartedBlocking(a) { activity ->
                             val density = activity.resources.displayMetrics.density
@@ -80,8 +117,10 @@ class Create {
                                             setTextSize(TypedValue.COMPLEX_UNIT_SP, it)
                                         }
                                         specification.get("textColor")?.asInt?.let(::setTextColor)
-                                        if (specification.get("gravity")?.asString == "center") {
-                                            gravity = Gravity.CENTER
+                                        when (specification.get("gravity")?.asString) {
+                                            "center" -> gravity = Gravity.CENTER
+                                            "center_vertical" -> gravity = Gravity.CENTER_VERTICAL
+                                            "start_center_vertical" -> gravity = Gravity.START or Gravity.CENTER_VERTICAL
                                         }
                                     }
                                     "image" -> ImageView(activity).apply {
@@ -95,6 +134,9 @@ class Create {
                                 }
                                 val id = Util.generateViewID(rand, activity)
                                 view.id = id
+                                if (specification.get("clickable")?.asBoolean == true) {
+                                    Util.setClickListener(view, aid, true, eventQueue)
+                                }
                                 specification.get("background")?.asInt?.let(view::setBackgroundColor)
                                 specification.get("visibility")?.asInt?.let {
                                     view.visibility = when (it) {

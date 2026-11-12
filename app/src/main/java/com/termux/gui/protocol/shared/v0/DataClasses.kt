@@ -9,6 +9,7 @@ import android.widget.FrameLayout
 import android.widget.RemoteViews
 import com.termux.gui.GUIActivity
 import com.termux.gui.R
+import com.google.gson.JsonArray
 import java.nio.ByteBuffer
 import java.util.*
 import java.util.concurrent.LinkedBlockingQueue
@@ -69,6 +70,8 @@ class DataClasses {
          * A Queue of pending Runnables for the Activity.
          */
         val queued: LinkedBlockingQueue<(activity: GUIActivity) -> Unit> = LinkedBlockingQueue<(activity: GUIActivity) -> Unit>(100)
+
+        val reusableObjects: MutableMap<String, JsonArray> = HashMap()
 
         /**
          * Set the Activity, if the connection ID lines up with the connection ID of this state object.
