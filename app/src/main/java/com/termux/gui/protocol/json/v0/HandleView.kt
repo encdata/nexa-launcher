@@ -146,17 +146,15 @@ class HandleView {
                     val id = m.params?.get("id")?.asInt
                     val img = m.params?.get("img")?.asString
                     val o = overlays[aid]
-                    if (img != null && id != null) {
+                    if (img != null && id != null && (a != null || o != null)) {
+                        val bin = Base64.decode(img, Base64.DEFAULT)
+                        val bitmap = BitmapFactory.decodeByteArray(bin, 0, bin.size)
                         if (a != null) {
                             V0Shared.runOnUIThreadActivityStarted(a) {
-                                val bin = Base64.decode(img, Base64.DEFAULT)
-                                val bitmap = BitmapFactory.decodeByteArray(bin, 0, bin.size)
                                 it.findViewReimplemented<ImageView>(id)?.setImageBitmap(bitmap)
                             }
                         }
                         if (o != null) {
-                            val bin = Base64.decode(img, Base64.DEFAULT)
-                            val bitmap = BitmapFactory.decodeByteArray(bin, 0, bin.size)
                             Util.runOnUIThreadBlocking {
                                 o.root.findViewReimplemented<ImageView>(id)?.setImageBitmap(bitmap)
                             }
@@ -898,7 +896,9 @@ class HandleView {
                     val aid = m.params?.get("aid")?.asInt
                     val id = m.params?.get("id")?.asInt
                     val items = m.params?.get("items")?.asJsonArray ?: return true
-                    val decoded = RecyclerListAdapter.fromJson(app, items)
+                    val images = m.params?.get("images")?.asJsonObject
+                    val decoded = RecyclerListAdapter.fromJson(app, items, images)
+                    val keepScroll = m.params?.get("keepScroll")?.asBoolean ?: false
                     val a = activities[aid]
                     val o = overlays[aid]
                     if (id != null && a != null) {
@@ -906,7 +906,7 @@ class HandleView {
                             val v = it.findViewReimplemented<View>(id)
                             if (v is RecyclerView && v.adapter is RecyclerListAdapter) {
                                 (v.adapter as RecyclerListAdapter).submitItems(decoded)
-                                v.scrollToPosition(0)
+                                if (!keepScroll) v.scrollToPosition(0)
                             }
                         }
                     }
@@ -915,7 +915,7 @@ class HandleView {
                             val v = o.root.findViewReimplemented<View>(id)
                             if (v is RecyclerView && v.adapter is RecyclerListAdapter) {
                                 (v.adapter as RecyclerListAdapter).submitItems(decoded)
-                                v.scrollToPosition(0)
+                                if (!keepScroll) v.scrollToPosition(0)
                             }
                         }
                     }

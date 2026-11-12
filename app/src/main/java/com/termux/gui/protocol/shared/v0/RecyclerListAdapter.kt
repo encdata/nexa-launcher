@@ -13,6 +13,7 @@ import android.widget.LinearLayout
 import android.widget.TextView
 import androidx.recyclerview.widget.RecyclerView
 import com.google.gson.JsonArray
+import com.google.gson.JsonObject
 import java.util.HashMap
 
 class RecyclerListAdapter(
@@ -26,7 +27,11 @@ class RecyclerListAdapter(
         val text: String,
         val subtitle: String,
         val marker: String,
-        val image: Bitmap?
+        val image: Bitmap?,
+        val key: String = "",
+        val cpu: String = "",
+        val memory: String = "",
+        val background: Int? = null
     )
 
     private val inflaterContext = context
@@ -94,14 +99,35 @@ class RecyclerListAdapter(
         val labelGap = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1f)
         labelGap.marginStart = iconGap
         row.addView(labels, labelGap)
+        val cpu = TextView(inflaterContext).apply {
+            textSize = 10f
+            gravity = Gravity.CENTER
+            maxLines = 1
+            setTextColor(subtitleColor)
+            layoutParams = LinearLayout.LayoutParams(inflaterContext.dp(56), ViewGroup.LayoutParams.MATCH_PARENT)
+        }
+        val memory = TextView(inflaterContext).apply {
+            textSize = 10f
+            gravity = Gravity.CENTER
+            maxLines = 1
+            setTextColor(subtitleColor)
+            layoutParams = LinearLayout.LayoutParams(inflaterContext.dp(72), ViewGroup.LayoutParams.MATCH_PARENT)
+        }
+        row.addView(cpu)
+        row.addView(memory)
         return Holder(row, icon, marker, labels.getChildAt(0) as TextView,
-            labels.getChildAt(1) as TextView)
+            labels.getChildAt(1) as TextView, cpu, memory)
     }
 
     override fun onBindViewHolder(holder: Holder, position: Int) {
         val item = items[position]
         holder.title.text = item.text
         holder.subtitle.text = item.subtitle
+        holder.cpu.text = item.cpu
+        holder.cpu.visibility = if (item.cpu.isEmpty()) View.GONE else View.VISIBLE
+        holder.memory.text = item.memory
+        holder.memory.visibility = if (item.memory.isEmpty()) View.GONE else View.VISIBLE
+        if (item.background != null) holder.itemView.setBackgroundColor(item.background)
         if (item.image != null) {
             holder.icon.setImageBitmap(item.image)
             holder.icon.visibility = View.VISIBLE
@@ -129,6 +155,8 @@ class RecyclerListAdapter(
 
     override fun getItemCount() = items.size
 
+    fun keyAt(position: Int) = items.getOrNull(position)?.key.orEmpty()
+
     fun submitItems(newItems: List<Item>) {
         items = newItems
         notifyDataSetChanged()
@@ -139,7 +167,9 @@ class RecyclerListAdapter(
         val icon: ImageView,
         val marker: TextView,
         val title: TextView,
-        val subtitle: TextView
+        val subtitle: TextView,
+        val cpu: TextView,
+        val memory: TextView
     ) : RecyclerView.ViewHolder(view)
 
     companion object {
@@ -148,13 +178,18 @@ class RecyclerListAdapter(
             return BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
         }
 
-        fun fromJson(context: Context, values: JsonArray?): List<Item> {
+        fun fromJson(context: Context, values: JsonArray?, images: JsonObject? = null): List<Item> {
             if (values == null) return emptyList()
             val decoded = HashMap<String, Bitmap?>()
             return values.mapNotNull { value ->
                 if (!value.isJsonObject) return@mapNotNull null
                 val row = value.asJsonObject
-                val encoded = row.get("image")?.takeUnless { it.isJsonNull }?.asString
+                val imageKey = row.get("imageKey")?.takeUnless { it.isJsonNull }?.asString
+                val encoded = if (imageKey != null) {
+                    images?.get(imageKey)?.takeUnless { it.isJsonNull }?.asString
+                } else {
+                    row.get("image")?.takeUnless { it.isJsonNull }?.asString
+                }
                 val bitmap = if (encoded.isNullOrEmpty()) null else decoded.getOrPut(encoded) {
                     val bytes = Base64.decode(encoded, Base64.DEFAULT)
                     BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
@@ -163,7 +198,11 @@ class RecyclerListAdapter(
                     text = row.get("text")?.takeUnless { it.isJsonNull }?.asString.orEmpty(),
                     subtitle = row.get("subtitle")?.takeUnless { it.isJsonNull }?.asString.orEmpty(),
                     marker = row.get("marker")?.takeUnless { it.isJsonNull }?.asString.orEmpty(),
-                    image = bitmap
+                    image = bitmap,
+                    key = row.get("key")?.takeUnless { it.isJsonNull }?.asString.orEmpty(),
+                    cpu = row.get("cpu")?.takeUnless { it.isJsonNull }?.asString.orEmpty(),
+                    memory = row.get("memory")?.takeUnless { it.isJsonNull }?.asString.orEmpty(),
+                    background = row.get("background")?.takeUnless { it.isJsonNull }?.asInt
                 )
             }
         }

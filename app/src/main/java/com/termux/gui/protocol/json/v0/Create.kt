@@ -214,13 +214,15 @@ class Create {
                             v.setHasFixedSize(true)
                             v.adapter = RecyclerListAdapter(it, initialItems, { position ->
                                 if (sendClick) {
+                                    val key = (v.adapter as RecyclerListAdapter).keyAt(position)
                                     eventQueue.offer(ConnectionHandler.Event("click", ConnectionHandler.gson.toJsonTree(
-                                        mapOf("aid" to aid, "id" to id, "position" to position))))
+                                        mapOf("aid" to aid, "id" to id, "position" to position, "key" to key))))
                                 }
                             }, { position ->
                                 if (sendLongClick) {
+                                    val key = (v.adapter as RecyclerListAdapter).keyAt(position)
                                     eventQueue.offer(ConnectionHandler.Event("longClick", ConnectionHandler.gson.toJsonTree(
-                                        mapOf("aid" to aid, "id" to id, "position" to position))))
+                                        mapOf("aid" to aid, "id" to id, "position" to position, "key" to key))))
                                 }
                             }, it.theme?.textColor)
                             Util.createViewOptionalsJSON(v, m.params)
