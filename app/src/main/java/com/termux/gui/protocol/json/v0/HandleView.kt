@@ -58,7 +58,7 @@ class HandleView {
                        eventQueue: LinkedBlockingQueue<ConnectionHandler.Event>) : Boolean {
             operator fun Regex.contains(text: String?): Boolean = if (text == null) false else this.matches(text)
             when (m.method) {
-                in Regex("create.*") -> {
+                in Regex("create.*|registerReusableObject") -> {
                     if (m.params != null) {
                         Create.handleCreateMessage(m, activities, overlays, rand, out, app, eventQueue)
                     }
