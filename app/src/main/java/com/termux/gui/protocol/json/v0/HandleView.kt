@@ -15,7 +15,10 @@ import android.view.ViewGroup
 import android.view.inputmethod.InputMethodManager
 import android.graphics.Typeface
 import android.text.SpannableStringBuilder
+import android.text.Spannable
 import android.text.Spanned
+import android.text.TextPaint
+import android.text.style.CharacterStyle
 import android.text.style.BackgroundColorSpan
 import android.text.style.ForegroundColorSpan
 import android.text.style.StyleSpan
@@ -42,6 +45,12 @@ import java.util.concurrent.LinkedBlockingQueue
 
 
 class HandleView {
+    private class SyntaxColorSpan(private val color: Int) : CharacterStyle() {
+        override fun updateDrawState(textPaint: TextPaint) {
+            textPaint.color = color
+        }
+    }
+
     companion object {
         @SuppressLint("WebViewApiAvailability")
         fun handleView(m: ConnectionHandler.Message, activities: MutableMap<Int, DataClasses.ActivityState>, overlays: MutableMap<Int, DataClasses.Overlay>,
@@ -534,6 +543,31 @@ class HandleView {
                                 textView.layoutDirection = View.LAYOUT_DIRECTION_LTR
                                 textView.textDirection = View.TEXT_DIRECTION_LTR
                                 textView.text = text
+                            }
+                        }
+                    }
+                    return true
+                }
+                "setSyntaxColors" -> {
+                    val aid = m.params?.get("aid")?.asInt
+                    val id = m.params?.get("id")?.asInt
+                    val spans = m.params?.get("spans")?.asJsonArray
+                    val activity = activities[aid]
+                    if (id != null && spans != null && activity != null) {
+                        V0Shared.runOnUIThreadActivityStarted(activity) { root ->
+                            val editable = root.findViewReimplemented<EditText>(id)?.text
+                                as? Spannable ?: return@runOnUIThreadActivityStarted
+                            editable.getSpans(0, editable.length, SyntaxColorSpan::class.java)
+                                .forEach(editable::removeSpan)
+                            for (entry in spans) {
+                                if (!entry.isJsonObject) continue
+                                val item = entry.asJsonObject
+                                val start = item.get("start")?.asInt ?: continue
+                                val end = item.get("end")?.asInt ?: continue
+                                val color = item.get("color")?.asInt ?: continue
+                                if (start < 0 || end <= start || end > editable.length) continue
+                                editable.setSpan(SyntaxColorSpan(color), start, end,
+                                    Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
                             }
                         }
                     }
