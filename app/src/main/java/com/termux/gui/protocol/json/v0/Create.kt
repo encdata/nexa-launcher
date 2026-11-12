@@ -17,6 +17,7 @@ import androidx.recyclerview.widget.RecyclerView
 import androidx.swiperefreshlayout.widget.SwipeRefreshLayout
 import com.google.android.material.tabs.TabLayout
 import com.termux.gui.ConnectionHandler
+import com.termux.gui.R
 import com.termux.gui.Util
 import com.termux.gui.protocol.shared.v0.*
 import com.termux.gui.views.KeyboardImageView
