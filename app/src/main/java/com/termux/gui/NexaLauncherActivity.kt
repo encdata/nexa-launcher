@@ -39,8 +39,15 @@ class NexaLauncherActivity : AppCompatActivity() {
     }
 
     private fun showExistingNexa(): Boolean {
+        val windowActivities = setOf(
+            GUIActivity::class.java.name,
+            GUIActivityDialog::class.java.name,
+            GUIActivityLockscreen::class.java.name,
+        )
         val task = getSystemService(ActivityManager::class.java).appTasks.firstOrNull {
-            it.taskInfo.baseIntent.component?.className == GUIActivity::class.java.name
+            val taskInfo = it.taskInfo
+            listOf(taskInfo.baseActivity, taskInfo.topActivity, taskInfo.baseIntent.component)
+                .any { component -> component?.packageName == packageName && component.className in windowActivities }
         } ?: return false
         task.moveToFront()
         finish()
@@ -53,6 +60,7 @@ class NexaLauncherActivity : AppCompatActivity() {
             STATE_DIR="${'$'}HOME/.cache/nexa"
             PID_FILE="${'$'}STATE_DIR/pid"
             LAUNCH_FILE="${'$'}STATE_DIR/launch"
+            ACTIVE_FILE="${'$'}STATE_DIR/active"
             mkdir -p "${'$'}STATE_DIR" || exit 1
 
             REMOTE_UPDATED=0
@@ -78,15 +86,18 @@ class NexaLauncherActivity : AppCompatActivity() {
                 kill "${'$'}PID" 2>/dev/null || true
                 while kill -0 "${'$'}PID" 2>/dev/null; do sleep 0.1; done
                 RUNNING=0
+                rm -f "${'$'}ACTIVE_FILE" "${'$'}LAUNCH_FILE"
             fi
             if [ "${'$'}REMOTE_UPDATED" -eq 1 ]; then
                 git -C "${'$'}NEXA_DIR" reset --hard "${'$'}REMOTE_HEAD" || exit 1
             fi
             if [ "${'$'}RUNNING" -eq 1 ]; then
+                if [ -e "${'$'}ACTIVE_FILE" ] || [ -e "${'$'}LAUNCH_FILE" ]; then exit 0; fi
                 touch "${'$'}LAUNCH_FILE"
                 exit 0
             fi
 
+            rm -f "${'$'}ACTIVE_FILE"
             touch "${'$'}LAUNCH_FILE"
             echo "${'$'}${'$'}" > "${'$'}PID_FILE"
             cd "${'$'}NEXA_DIR" || exit 1
