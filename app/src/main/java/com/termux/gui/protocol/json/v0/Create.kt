@@ -560,7 +560,13 @@ class Create {
                     if (m.method == "createProgressBar") {
                         var id = -1
                         V0Shared.runOnUIThreadActivityStartedBlocking(a) {
-                            val v = ProgressBar(it, null, android.R.attr.progressBarStyleHorizontal)
+                            val v = if (m.params?.get("circular")?.asBoolean == true) {
+                                CircularProgressBar(it,
+                                    m.params?.get("progressColor")?.asInt ?: 0xFF45D6C5.toInt(),
+                                    m.params?.get("trackColor")?.asInt ?: 0xFF2B3440.toInt())
+                            } else {
+                                ProgressBar(it, null, android.R.attr.progressBarStyleHorizontal)
+                            }
                             id = Util.generateViewID(rand, it)
                             v.id = id
                             Util.createViewOptionalsJSON(v, m.params)
@@ -934,7 +940,13 @@ class Create {
                     if (m.method == "createProgressBar") {
                         var id = -1
                         Util.runOnUIThreadBlocking {
-                            val v = ProgressBar(app, null, android.R.attr.progressBarStyleHorizontal)
+                            val v = if (m.params?.get("circular")?.asBoolean == true) {
+                                CircularProgressBar(app,
+                                    m.params?.get("progressColor")?.asInt ?: 0xFF45D6C5.toInt(),
+                                    m.params?.get("trackColor")?.asInt ?: 0xFF2B3440.toInt())
+                            } else {
+                                ProgressBar(app, null, android.R.attr.progressBarStyleHorizontal)
+                            }
                             id = Util.generateViewIDRaw(rand, o.usedIds)
                             v.id = id
                             Util.createViewOptionalsJSON(v, m.params)
