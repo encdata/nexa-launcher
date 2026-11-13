@@ -11,6 +11,7 @@ import android.widget.TextView
 import androidx.appcompat.app.AlertDialog
 import com.termux.gui.Util.Companion.runOnUIThreadBlocking
 import com.termux.gui.protocol.shared.v0.DataClasses
+import com.termux.gui.protocol.shared.v0.V0Shared
 import java.lang.ref.WeakReference
 
 class NexaLauncherActivity : GUIActivity() {
@@ -27,7 +28,7 @@ class NexaLauncherActivity : GUIActivity() {
         @Volatile private var pendingHost = WeakReference<NexaLauncherActivity>(null)
 
         fun adoptPendingHost(connectionId: Long, aid: Int, state: DataClasses.ActivityState,
-                             listener: GUIActivity.Listener, activities: MutableMap<Int, DataClasses.ActivityState>,
+                             listener: V0Shared, activities: MutableMap<Int, DataClasses.ActivityState>,
                              tasks: MutableList<ActivityManager.AppTask>): GUIActivity? {
             val host = pendingHost.get() ?: return null
             if (host.isFinishing || host.isDestroyed || host.intent.data != null) return null
