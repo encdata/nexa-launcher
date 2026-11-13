@@ -30,7 +30,7 @@ import java.util.concurrent.LinkedBlockingQueue
  * Sorry for this mess.
  * New features will likely only be in the protobuf protocol.
  */
-class V0Json(app: Context, private val eventQueue: LinkedBlockingQueue<ConnectionHandler.Event>) : V0Shared(app) {
+class V0Json(app: Context, private val eventQueue: LinkedBlockingQueue<ConnectionHandler.Event>, nexaConnection: Boolean = false) : V0Shared(app, nexaConnection) {
     
 
     @SuppressLint("ClickableViewAccessibility")

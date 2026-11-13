@@ -27,7 +27,7 @@ import kotlin.reflect.KClass
 /**
  * Code that can be shared for all Protocol implementations.
  */
-abstract class V0Shared(protected val app: Context) : GUIActivity.Listener {
+abstract class V0Shared(protected val app: Context, private val nexaConnection: Boolean = false) : GUIActivity.Listener {
     
     
     private var activityID = 0
@@ -176,7 +176,12 @@ abstract class V0Shared(protected val app: Context) : GUIActivity.Listener {
         val aid = generateActivityID()
         i.data = Uri.parse(Util.activityIDData(aid))
 
-        activities[aid] = DataClasses.ActivityState(Util.connectionID())
+        val state = DataClasses.ActivityState(Util.connectionID())
+        activities[aid] = state
+        if (nexaConnection && ptid == null && !pip && !dialog && !lockscreen) {
+            val adopted = NexaLauncherActivity.adoptPendingHost(Util.connectionID(), aid, state, this, activities, tasks)
+            if (adopted != null) return adopted
+        }
         i.putExtra(GUIActivity.PIP_KEY, pip)
         i.putExtra(GUIActivity.INTERCEPT_KEY, interceptBackButton)
         when {

@@ -25,7 +25,7 @@ import java.util.*
 import java.util.concurrent.LinkedBlockingQueue
 import com.termux.gui.protocol.protobuf.v0.GUIProt0.*
 
-class V0Proto(app: Context, private val eventQueue: LinkedBlockingQueue<Event>) : V0Shared(app) {
+class V0Proto(app: Context, private val eventQueue: LinkedBlockingQueue<Event>, nexaConnection: Boolean = false) : V0Shared(app, nexaConnection) {
     
     class ProtoLogger(var level: Int = 0) {
         private val log: LinkedBlockingQueue<String> = LinkedBlockingQueue(10000)

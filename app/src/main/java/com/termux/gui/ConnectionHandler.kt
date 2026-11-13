@@ -137,12 +137,12 @@ class ConnectionHandler(private val request: GUIService.ConnectionRequest, priva
                     when (ptype) {
                         0 -> {
                             when (pversion) {
-                                0 -> V0Proto(app, eventQueueProto).handleConnection(main)
+                                0 -> V0Proto(app, eventQueueProto, request.nexa).handleConnection(main)
                             }
                         }
                         1 -> {
                             when (pversion) {
-                                0 -> V0Json(app, eventQueueJson).handleConnection(main)
+                                0 -> V0Json(app, eventQueueJson, request.nexa).handleConnection(main)
                             }
                         }
                     }

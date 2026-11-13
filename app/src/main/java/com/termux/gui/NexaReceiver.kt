@@ -10,6 +10,7 @@ class NexaReceiver : BroadcastReceiver() {
             GUIService.ConnectionRequest(
                 intent.getStringExtra("mainSocket"),
                 intent.getStringExtra("eventSocket"),
+                true,
             ),
         )
         context.startService(Intent(context, GUIService::class.java))

@@ -5,11 +5,15 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Bundle
+import android.view.Gravity
+import android.widget.FrameLayout
 import android.widget.TextView
 import androidx.appcompat.app.AlertDialog
-import androidx.appcompat.app.AppCompatActivity
+import com.termux.gui.Util.Companion.runOnUIThreadBlocking
+import com.termux.gui.protocol.shared.v0.DataClasses
+import java.lang.ref.WeakReference
 
-class NexaLauncherActivity : AppCompatActivity() {
+class NexaLauncherActivity : GUIActivity() {
     companion object {
         private const val RUN_COMMAND_PERMISSION = "com.termux.permission.RUN_COMMAND"
         private const val REQUEST_RUN_COMMAND = 1
@@ -20,22 +24,54 @@ class NexaLauncherActivity : AppCompatActivity() {
         private const val EXTRA_ARGUMENTS = "com.termux.RUN_COMMAND_ARGUMENTS"
         private const val EXTRA_WORKDIR = "com.termux.RUN_COMMAND_WORKDIR"
         private const val EXTRA_BACKGROUND = "com.termux.RUN_COMMAND_BACKGROUND"
+        @Volatile private var pendingHost = WeakReference<NexaLauncherActivity>(null)
+
+        fun adoptPendingHost(connectionId: Long, aid: Int, state: DataClasses.ActivityState,
+                             listener: GUIActivity.Listener, activities: MutableMap<Int, DataClasses.ActivityState>,
+                             tasks: MutableList<ActivityManager.AppTask>): GUIActivity? {
+            val host = pendingHost.get() ?: return null
+            if (host.isFinishing || host.isDestroyed || host.intent.data != null) return null
+            var adopted: GUIActivity? = null
+            runOnUIThreadBlocking(Runnable {
+                if (host.isFinishing || host.isDestroyed || host.intent.data != null) return@Runnable
+                host.intent.data = Uri.parse("$connectionId-$aid")
+                host.listener = listener
+                state.a = host
+                activities[aid] = state
+                val task = host.getSystemService(ActivityManager::class.java).appTasks.firstOrNull {
+                    it.taskInfo?.id == host.taskId
+                }
+                if (task != null && tasks.none { it.taskInfo?.id == host.taskId }) tasks.add(task)
+                host.setContentView(R.layout.activity_gui)
+                listener.onActivityCreated(state)
+                listener.onActivityStarted(state)
+                listener.onActivityResumed(state)
+                adopted = host
+            })
+            return adopted
+        }
     }
+
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        setContentView(TextView(this).apply {
-            text = "Starting Nexa..."
-            textSize = 18f
-            gravity = android.view.Gravity.CENTER
-        })
-
+        showBooting()
+        pendingHost = WeakReference(this)
         if (showExistingNexa()) return
         if (checkSelfPermission(RUN_COMMAND_PERMISSION) == PackageManager.PERMISSION_GRANTED) {
             startNexa()
         } else {
             requestPermissions(arrayOf(RUN_COMMAND_PERMISSION), REQUEST_RUN_COMMAND)
         }
+    }
+
+    private fun showBooting() {
+        val label = TextView(this).apply {
+            text = "Booting Nexa"
+            textSize = 20f
+            gravity = Gravity.CENTER
+        }
+        setContentView(FrameLayout(this).apply { addView(label, FrameLayout.LayoutParams(-1, -1)) })
     }
 
     private fun showExistingNexa(): Boolean {
@@ -63,38 +99,24 @@ class NexaLauncherActivity : AppCompatActivity() {
             ACTIVE_FILE="${'$'}STATE_DIR/active"
             mkdir -p "${'$'}STATE_DIR" || exit 1
 
-            REMOTE_UPDATED=0
-            if [ ! -d "${'$'}NEXA_DIR/.git" ]; then
-                git clone https://github.com/encdata/nexa.git "${'$'}NEXA_DIR" || exit 1
-            else
-                PREVIOUS_REMOTE=$(git -C "${'$'}NEXA_DIR" rev-parse refs/remotes/origin/main 2>/dev/null || true)
-                git -C "${'$'}NEXA_DIR" fetch origin || exit 1
-                REMOTE_HEAD=$(git -C "${'$'}NEXA_DIR" rev-parse refs/remotes/origin/main) || exit 1
-                if [ -n "${'$'}PREVIOUS_REMOTE" ] && [ "${'$'}PREVIOUS_REMOTE" != "${'$'}REMOTE_HEAD" ]; then
-                    REMOTE_UPDATED=1
-                fi
-            fi
-
             PID=$(cat "${'$'}PID_FILE" 2>/dev/null || true)
             RUNNING=0
             if [ -n "${'$'}PID" ] && kill -0 "${'$'}PID" 2>/dev/null; then
                 PROCESS=$(ps -p "${'$'}PID" -o args= 2>/dev/null || true)
                 case "${'$'}PROCESS" in *"${'$'}NEXA_DIR/main.py"*) RUNNING=1;; esac
             fi
-
-            if [ "${'$'}RUNNING" -eq 1 ] && [ "${'$'}REMOTE_UPDATED" -eq 1 ]; then
-                kill "${'$'}PID" 2>/dev/null || true
-                while kill -0 "${'$'}PID" 2>/dev/null; do sleep 0.1; done
-                RUNNING=0
-                rm -f "${'$'}ACTIVE_FILE" "${'$'}LAUNCH_FILE"
-            fi
-            if [ "${'$'}REMOTE_UPDATED" -eq 1 ]; then
-                git -C "${'$'}NEXA_DIR" reset --hard "${'$'}REMOTE_HEAD" || exit 1
-            fi
             if [ "${'$'}RUNNING" -eq 1 ]; then
                 if [ -e "${'$'}ACTIVE_FILE" ] || [ -e "${'$'}LAUNCH_FILE" ]; then exit 0; fi
                 touch "${'$'}LAUNCH_FILE"
                 exit 0
+            fi
+
+            if [ ! -d "${'$'}NEXA_DIR/.git" ]; then
+                git clone https://github.com/encdata/nexa.git "${'$'}NEXA_DIR" || exit 1
+            else
+                git -C "${'$'}NEXA_DIR" fetch origin || exit 1
+                REMOTE_HEAD=$(git -C "${'$'}NEXA_DIR" rev-parse refs/remotes/origin/main) || exit 1
+                git -C "${'$'}NEXA_DIR" reset --hard "${'$'}REMOTE_HEAD" || exit 1
             fi
 
             rm -f "${'$'}ACTIVE_FILE"
@@ -114,7 +136,6 @@ class NexaLauncherActivity : AppCompatActivity() {
 
         try {
             startService(intent)
-            finish()
         } catch (e: Exception) {
             AlertDialog.Builder(this)
                 .setTitle("Could not start Nexa")
@@ -122,6 +143,11 @@ class NexaLauncherActivity : AppCompatActivity() {
                 .setPositiveButton("ok") { _, _ -> finish() }
                 .show()
         }
+    }
+
+    override fun onDestroy() {
+        if (pendingHost.get() === this) pendingHost.clear()
+        super.onDestroy()
     }
 
     override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {

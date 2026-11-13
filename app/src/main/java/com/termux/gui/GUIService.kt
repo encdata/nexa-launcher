@@ -18,7 +18,7 @@ import java.util.concurrent.*
  * It receives the connection requests gathered by the GUIReceiver and hands them to executor Threads and ConnectionHandler
  */
 class GUIService : Service() {
-    class ConnectionRequest(val mainSocket: String?, val eventSocket: String?)
+    class ConnectionRequest(val mainSocket: String?, val eventSocket: String?, val nexa: Boolean = false)
     
     companion object {
         private val TAG: String? = GUIService::class.java.canonicalName
