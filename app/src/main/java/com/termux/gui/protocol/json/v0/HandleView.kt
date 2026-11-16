@@ -39,6 +39,8 @@ import com.termux.gui.protocol.shared.v0.DataClasses
 import com.termux.gui.protocol.shared.v0.GUIWebViewClient
 import com.termux.gui.protocol.shared.v0.RecyclerListAdapter
 import com.termux.gui.protocol.shared.v0.V0Shared
+import com.termux.gui.protocol.shared.v0.ViewAnimation
+import com.termux.gui.protocol.shared.v0.ViewStyle
 import java.io.DataOutputStream
 import java.util.*
 import java.util.concurrent.LinkedBlockingQueue
@@ -89,11 +91,13 @@ class HandleView {
                     val o = overlays[aid]
                     if (a != null && id != null) {
                         V0Shared.runOnUIThreadActivityStarted(a) {
+                            ViewAnimation.cancelTree(aid!!, it.findViewReimplemented(id) ?: return@runOnUIThreadActivityStarted)
                             Util.removeViewRecursive(it.findViewReimplemented(id), it.usedIds)
                         }
                     }
                     if (o != null && id != null) {
                         Util.runOnUIThreadBlocking {
+                            o.root.findViewReimplemented(id)?.let { ViewAnimation.cancelTree(aid!!, it) }
                             Util.removeViewRecursive(o.root.findViewReimplemented(id), o.usedIds)
                         }
                     }
@@ -109,6 +113,7 @@ class HandleView {
                             val v = it.findViewReimplemented<ViewGroup>(id)
                             if (v != null) {
                                 while (v.childCount > 0) {
+                                    ViewAnimation.cancelTree(aid!!, v.getChildAt(0))
                                     Util.removeViewRecursive(v.getChildAt(0), it.usedIds)
                                 }
                             }
@@ -119,6 +124,7 @@ class HandleView {
                             val v = o.root.findViewReimplemented<ViewGroup>(id)
                             if (v != null) {
                                 while (v.childCount > 0) {
+                                    ViewAnimation.cancelTree(aid!!, v.getChildAt(0))
                                     Util.removeViewRecursive(v.getChildAt(0), o.usedIds)
                                 }
                             }
@@ -673,6 +679,56 @@ class HandleView {
                             if (o != null) {
                                 Util.runOnUIThreadBlocking {
                                     o.root.findViewReimplemented<View>(id)?.backgroundTintList = ColorStateList.valueOf(color)
+                                }
+                            }
+                        }
+                    }
+                    return true
+                }
+                "setViewStyle" -> {
+                    val aid = m.params?.get("aid")?.asInt
+                    val id = m.params?.get("id")?.asInt
+                    val style = m.params?.getAsJsonObject("style")
+                    val a = activities[aid]
+                    val o = overlays[aid]
+                    if (id != null && style != null) {
+                        if (a != null) {
+                            V0Shared.runOnUIThreadActivityStarted(a) { activity ->
+                                activity.findViewReimplemented<View>(id)?.let {
+                                    ViewStyle.apply(it, style, activity.resources.displayMetrics.density)
+                                }
+                            }
+                        }
+                        if (o != null) {
+                            Util.runOnUIThreadBlocking {
+                                o.root.findViewReimplemented<View>(id)?.let {
+                                    ViewStyle.apply(it, style, o.root.resources.displayMetrics.density)
+                                }
+                            }
+                        }
+                    }
+                    return true
+                }
+                "animateView" -> {
+                    val aid = m.params?.get("aid")?.asInt
+                    val id = m.params?.get("id")?.asInt
+                    val options = m.params?.getAsJsonObject("options")
+                    val a = activities[aid]
+                    val o = overlays[aid]
+                    if (id != null && options != null) {
+                        if (a != null) {
+                            V0Shared.runOnUIThreadActivityStarted(a) { activity ->
+                                activity.findViewReimplemented<View>(id)?.let {
+                                    ViewAnimation.start(it, aid!!, id, options,
+                                        activity.resources.displayMetrics.density)
+                                }
+                            }
+                        }
+                        if (o != null) {
+                            Util.runOnUIThreadBlocking {
+                                o.root.findViewReimplemented<View>(id)?.let {
+                                    ViewAnimation.start(it, aid!!, id, options,
+                                        o.root.resources.displayMetrics.density)
                                 }
                             }
                         }

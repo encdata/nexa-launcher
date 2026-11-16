@@ -6,6 +6,7 @@ import android.text.method.LinkMovementMethod
 import android.util.Base64
 import android.util.TypedValue
 import android.view.Gravity
+import android.view.ViewGroup
 import android.view.inputmethod.EditorInfo
 import android.webkit.ConsoleMessage
 import android.webkit.WebView
@@ -20,6 +21,7 @@ import com.termux.gui.ConnectionHandler
 import com.termux.gui.R
 import com.termux.gui.Util
 import com.termux.gui.protocol.shared.v0.*
+import com.termux.gui.views.FlexLayout
 import com.termux.gui.views.KeyboardImageView
 import com.termux.gui.views.SnappingHorizontalScrollView
 import com.termux.gui.views.SnappingNestedScrollView
@@ -63,9 +65,10 @@ class Create {
                                 ?: throw IllegalArgumentException("unknown reusable object: $name")
                             val properties = m.params?.get("properties")?.asJsonObject
                             val mutableProperties = setOf(
-                                "align", "background", "blockinput", "bottom", "checked", "clickable",
+                                "align", "background", "border", "blockinput", "bottom", "checked", "clickable",
+                                "clipToOutline", "column", "columnSpan", "columnWeight",
                                 "enabled", "fillViewport", "gravity", "height", "image", "inputtype",
-                                "left", "nobar",
+                                "gradient", "left", "nobar", "radius", "row", "rowSpan", "shadow", "shadowColor",
                                 "line", "margins", "max", "options", "progress", "right", "selected",
                                 "singleline", "text", "textColor", "textSize", "top", "visibility",
                                 "weight", "width", "x", "y")
@@ -126,6 +129,18 @@ class Create {
                                         if (specification.get("nobar")?.asBoolean == true) {
                                             isHorizontalScrollBarEnabled = false
                                         }
+                                    }
+                                    "flow" -> FlexLayout(activity).apply {
+                                        itemGap = ((specification.get("gap")?.asFloat ?: 0f) * density).roundToInt()
+                                        lineGap = ((specification.get("rowGap")?.asFloat ?: 0f) * density).roundToInt()
+                                        justify = specification.get("justify")?.asString ?: "start"
+                                        alignItems = specification.get("alignItems")?.asString ?: "start"
+                                    }
+                                    "grid" -> GridLayout(activity).apply {
+                                        columnCount = specification.get("columns")?.asInt ?: 1
+                                        rowCount = GridLayout.UNDEFINED
+                                        useDefaultMargins = false
+                                        alignmentMode = GridLayout.ALIGN_BOUNDS
                                     }
                                     "edit" -> EditText(activity).apply {
                                         when (specification.get("inputtype")?.asString ?: "text") {
@@ -225,7 +240,7 @@ class Create {
                                         override fun onStopTrackingTouch(seekBar: SeekBar?) {}
                                     })
                                 }
-                                specification.get("background")?.asInt?.let(view::setBackgroundColor)
+                                ViewStyle.apply(view, specification, density)
                                 specification.get("visibility")?.asInt?.let {
                                     view.visibility = when (it) {
                                         0 -> android.view.View.GONE
@@ -239,10 +254,29 @@ class Create {
                                 val weight = specification.get("weight")?.asFloat ?: 0f
                                 val left = margin(specification, "left")
                                 val top = margin(specification, "top")
-                                val params = if (parentView is LinearLayout) {
-                                    LinearLayout.LayoutParams(width, height, weight)
-                                } else {
-                                    FrameLayout.LayoutParams(width, height)
+                                val params: ViewGroup.LayoutParams = when (parentView) {
+                                    is LinearLayout -> LinearLayout.LayoutParams(width, height, weight)
+                                    is FlexLayout -> FlexLayout.LayoutParams(width, height, weight).apply {
+                                        alignSelf = specification.get("align")?.asString
+                                    }
+                                    is GridLayout -> {
+                                        val row = specification.get("row")?.asInt ?: 0
+                                        val column = specification.get("column")?.asInt ?: 0
+                                        val rowSpan = specification.get("rowSpan")?.asInt ?: 1
+                                        val columnSpan = specification.get("columnSpan")?.asInt ?: 1
+                                        val columnWeight = specification.get("columnWeight")?.asFloat ?: 1f
+                                        val alignment = when (specification.get("align")?.asString) {
+                                            "start" -> GridLayout.START
+                                            "center" -> GridLayout.CENTER
+                                            "end" -> GridLayout.END
+                                            else -> GridLayout.FILL
+                                        }
+                                        GridLayout.LayoutParams(
+                                            GridLayout.spec(row, rowSpan, alignment),
+                                            GridLayout.spec(column, columnSpan, columnWeight, alignment)
+                                        ).apply { this.width = width; this.height = height }
+                                    }
+                                    else -> FrameLayout.LayoutParams(width, height)
                                 }
                                 params.setMargins(
                                     left + (specification.get("x")?.asFloat?.times(density)?.roundToInt() ?: 0),
