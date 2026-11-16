@@ -91,13 +91,18 @@ class HandleView {
                     val o = overlays[aid]
                     if (a != null && id != null) {
                         V0Shared.runOnUIThreadActivityStarted(a) {
-                            ViewAnimation.cancelTree(aid!!, it.findViewReimplemented(id) ?: return@runOnUIThreadActivityStarted)
-                            Util.removeViewRecursive(it.findViewReimplemented(id), it.usedIds)
+                            val view = it.findViewReimplemented<View>(id)
+                            if (view != null) {
+                                ViewAnimation.cancelTree(aid!!, view)
+                                Util.removeViewRecursive(view, it.usedIds)
+                            }
                         }
                     }
                     if (o != null && id != null) {
                         Util.runOnUIThreadBlocking {
-                            o.root.findViewReimplemented(id)?.let { ViewAnimation.cancelTree(aid!!, it) }
+                            o.root.findViewReimplemented<View>(id)?.let { view ->
+                                ViewAnimation.cancelTree(aid!!, view)
+                            }
                             Util.removeViewRecursive(o.root.findViewReimplemented(id), o.usedIds)
                         }
                     }
@@ -688,7 +693,7 @@ class HandleView {
                 "setViewStyle" -> {
                     val aid = m.params?.get("aid")?.asInt
                     val id = m.params?.get("id")?.asInt
-                    val style = m.params?.getAsJsonObject("style")
+                    val style = m.params?.get("style")?.asJsonObject
                     val a = activities[aid]
                     val o = overlays[aid]
                     if (id != null && style != null) {
@@ -712,7 +717,7 @@ class HandleView {
                 "animateView" -> {
                     val aid = m.params?.get("aid")?.asInt
                     val id = m.params?.get("id")?.asInt
-                    val options = m.params?.getAsJsonObject("options")
+                    val options = m.params?.get("options")?.asJsonObject
                     val a = activities[aid]
                     val o = overlays[aid]
                     if (id != null && options != null) {

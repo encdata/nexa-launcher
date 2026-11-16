@@ -273,12 +273,12 @@ class Create {
                                         }
                                         GridLayout.LayoutParams(
                                             GridLayout.spec(row, rowSpan, alignment),
-                                            GridLayout.spec(column, columnSpan, columnWeight, alignment)
+                                            GridLayout.spec(column, columnSpan, alignment, columnWeight)
                                         ).apply { this.width = width; this.height = height }
                                     }
                                     else -> FrameLayout.LayoutParams(width, height)
                                 }
-                                params.setMargins(
+                                (params as? ViewGroup.MarginLayoutParams)?.setMargins(
                                     left + (specification.get("x")?.asFloat?.times(density)?.roundToInt() ?: 0),
                                     top + (specification.get("y")?.asFloat?.times(density)?.roundToInt() ?: 0),
                                     margin(specification, "right"),

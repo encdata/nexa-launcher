@@ -28,7 +28,7 @@ class FlexLayout(context: Context) : ViewGroup(context) {
     private val lines = mutableListOf<Line>()
 
     override fun generateDefaultLayoutParams() =
-        LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT)
+        LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT)
 
     override fun generateLayoutParams(source: ViewGroup.LayoutParams) = LayoutParams(source)
 
@@ -98,7 +98,7 @@ class FlexLayout(context: Context) : ViewGroup(context) {
             for (child in line.children) {
                 val params = child.layoutParams as LayoutParams
                 if ((params.alignSelf ?: alignItems) != "stretch"
-                    || params.height != LayoutParams.WRAP_CONTENT) continue
+                    || params.height != ViewGroup.LayoutParams.WRAP_CONTENT) continue
                 val targetHeight = (line.height - params.topMargin - params.bottomMargin).coerceAtLeast(0)
                 val widthSpec = MeasureSpec.makeMeasureSpec(child.measuredWidth, MeasureSpec.EXACTLY)
                 child.measure(widthSpec, MeasureSpec.makeMeasureSpec(targetHeight, MeasureSpec.EXACTLY))
