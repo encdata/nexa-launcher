@@ -10,6 +10,8 @@ import android.view.ViewGroup
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
+import androidx.recyclerview.widget.DiffUtil
+import androidx.recyclerview.widget.ListAdapter
 import androidx.recyclerview.widget.RecyclerView
 import com.google.gson.JsonArray
 import com.google.gson.JsonObject
@@ -21,7 +23,7 @@ class RecyclerListAdapter(
     private val onClick: (Int) -> Unit,
     private val onLongClick: (Int) -> Unit,
     preferredTextColor: Int? = null
-) : RecyclerView.Adapter<RecyclerListAdapter.Holder>() {
+) : ListAdapter<RecyclerListAdapter.Item, RecyclerListAdapter.Holder>(ITEM_DIFF) {
     data class Item(
         val text: String,
         val subtitle: String,
@@ -34,7 +36,6 @@ class RecyclerListAdapter(
     )
 
     private val inflaterContext = context
-    private var items = initialItems
     private val horizontalPadding = context.dp(12)
     private val iconSize = context.dp(30)
     private val iconGap = context.dp(8)
@@ -51,7 +52,7 @@ class RecyclerListAdapter(
             (preferredTextColor and 0x00FFFFFF) or 0xB0000000.toInt()
         }
         colors.recycle()
-        setHasStableIds(false)
+        submitList(initialItems)
     }
 
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): Holder {
@@ -119,7 +120,7 @@ class RecyclerListAdapter(
     }
 
     override fun onBindViewHolder(holder: Holder, position: Int) {
-        val item = items[position]
+        val item = getItem(position)
         holder.title.text = item.text
         holder.subtitle.text = item.subtitle
         holder.cpu.text = item.cpu
@@ -152,13 +153,10 @@ class RecyclerListAdapter(
         }
     }
 
-    override fun getItemCount() = items.size
-
-    fun keyAt(position: Int) = items.getOrNull(position)?.key.orEmpty()
+    fun keyAt(position: Int) = currentList.getOrNull(position)?.key.orEmpty()
 
     fun submitItems(newItems: List<Item>) {
-        items = newItems
-        notifyDataSetChanged()
+        submitList(newItems)
     }
 
     class Holder(
@@ -172,6 +170,16 @@ class RecyclerListAdapter(
     ) : RecyclerView.ViewHolder(view)
 
     companion object {
+        private val ITEM_DIFF = object : DiffUtil.ItemCallback<Item>() {
+            override fun areItemsTheSame(oldItem: Item, newItem: Item): Boolean {
+                if (oldItem.key.isEmpty() || newItem.key.isEmpty()) return oldItem == newItem
+                return oldItem.key == newItem.key
+            }
+
+            override fun areContentsTheSame(oldItem: Item, newItem: Item): Boolean =
+                oldItem == newItem
+        }
+
         fun decodeImage(bytes: ByteArray): Bitmap? {
             if (bytes.isEmpty()) return null
             return BitmapCache.decode(bytes)
