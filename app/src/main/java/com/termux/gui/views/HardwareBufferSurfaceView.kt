@@ -28,7 +28,7 @@ import java.nio.charset.Charset
 /**
  * A SurfaceView that can draw a shared HardwareBuffer to the Surface.
  */
-class HardwareBufferSurfaceView(c: Context) : SurfaceView(c), Choreographer.FrameCallback {
+open class HardwareBufferSurfaceView(c: Context) : SurfaceView(c), Choreographer.FrameCallback {
 
     /**
      * Configuration of the View.
