@@ -22,7 +22,10 @@ import com.termux.gui.R
 import com.termux.gui.Util
 import com.termux.gui.protocol.shared.v0.*
 import com.termux.gui.views.FlexLayout
+import com.termux.gui.views.HardwareBitmapSurfaceView
+import com.termux.gui.views.HardwareBufferSurfaceView
 import com.termux.gui.views.KeyboardImageView
+import com.termux.gui.views.BitmapSurfaceView
 import com.termux.gui.views.SnappingHorizontalScrollView
 import com.termux.gui.views.SnappingNestedScrollView
 import java.io.DataOutputStream
@@ -406,6 +409,40 @@ class Create {
                                 v.isFocusableInTouchMode = true
                                 Util.setKeyListenerJSON(v, aid, eventQueue)
                                 v.textListener = { text -> Util.sendKeyTextJSON(v, aid, text, eventQueue) }
+                            }
+                            Util.createViewOptionalsJSON(v, m.params)
+                            Util.setViewActivity(it, v, parent)
+                        }
+                        Util.sendMessage(out, ConnectionHandler.gson.toJson(id))
+                        return
+                    }
+                    if (m.method == "createSurfaceView") {
+                        var id = -1
+                        V0Shared.runOnUIThreadActivityStartedBlocking(a) {
+                            val v: android.view.SurfaceView = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                                HardwareBitmapSurfaceView(it)
+                            } else {
+                                BitmapSurfaceView(it)
+                            }
+                            id = Util.generateViewID(rand, it)
+                            v.id = id
+                            if (v is HardwareBufferSurfaceView) {
+                                v.surfaceChangedListener = object : HardwareBufferSurfaceView.SurfaceChangedListener {
+                                    override fun onSurfaceChanged(width: Int, height: Int) {
+                                        val value = mapOf("aid" to aid, "id" to id,
+                                            "width" to width, "height" to height)
+                                        eventQueue.offer(ConnectionHandler.Event(
+                                            "surfaceChanged", ConnectionHandler.gson.toJsonTree(value)))
+                                    }
+                                }
+                            }
+                            if (m.params?.get("keyboard")?.asBoolean == true) {
+                                v.isFocusable = true
+                                v.isFocusableInTouchMode = true
+                                Util.setKeyListenerJSON(v, aid, eventQueue)
+                                if (v is HardwareBufferSurfaceView) {
+                                    v.textListener = { text -> Util.sendKeyTextJSON(v, aid, text, eventQueue) }
+                                }
                             }
                             Util.createViewOptionalsJSON(v, m.params)
                             Util.setViewActivity(it, v, parent)
@@ -824,6 +861,39 @@ class Create {
                                 v.isFocusableInTouchMode = true
                                 Util.setKeyListenerJSON(v, aid, eventQueue)
                                 v.textListener = { text -> Util.sendKeyTextJSON(v, aid, text, eventQueue) }
+                            }
+                            Util.createViewOptionalsJSON(v, m.params)
+                            V0Shared.setViewOverlay(o, v, parent)
+                        }
+                        Util.sendMessage(out, ConnectionHandler.gson.toJson(id))
+                        return
+                    }
+                    if (m.method == "createSurfaceView") {
+                        val v: android.view.SurfaceView = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                            HardwareBitmapSurfaceView(app)
+                        } else {
+                            BitmapSurfaceView(app)
+                        }
+                        val id = Util.generateViewIDRaw(rand, o.usedIds)
+                        Util.runOnUIThreadBlocking {
+                            v.id = id
+                            if (v is HardwareBufferSurfaceView) {
+                                v.surfaceChangedListener = object : HardwareBufferSurfaceView.SurfaceChangedListener {
+                                    override fun onSurfaceChanged(width: Int, height: Int) {
+                                        val value = mapOf("aid" to aid, "id" to id,
+                                            "width" to width, "height" to height)
+                                        eventQueue.offer(ConnectionHandler.Event(
+                                            "surfaceChanged", ConnectionHandler.gson.toJsonTree(value)))
+                                    }
+                                }
+                            }
+                            if (m.params?.get("keyboard")?.asBoolean == true) {
+                                v.isFocusable = true
+                                v.isFocusableInTouchMode = true
+                                Util.setKeyListenerJSON(v, aid, eventQueue)
+                                if (v is HardwareBufferSurfaceView) {
+                                    v.textListener = { text -> Util.sendKeyTextJSON(v, aid, text, eventQueue) }
+                                }
                             }
                             Util.createViewOptionalsJSON(v, m.params)
                             V0Shared.setViewOverlay(o, v, parent)

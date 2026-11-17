@@ -852,6 +852,29 @@ class HandleView {
                     }
                     return true
                 }
+                "hideSoftInput" -> {
+                    val aid = m.params?.get("aid")?.asInt
+                    val id = m.params?.get("id")?.asInt
+                    val a = activities[aid]
+                    val o = overlays[aid]
+                    if (id != null) {
+                        if (a != null) {
+                            V0Shared.runOnUIThreadActivityStarted(a) {
+                                val v = it.findViewReimplemented<View>(id)
+                                val im = it.getSystemService(Context.INPUT_METHOD_SERVICE) as? InputMethodManager
+                                if (v != null) im?.hideSoftInputFromWindow(v.windowToken, 0)
+                            }
+                        }
+                        if (o != null) {
+                            Util.runOnUIThreadBlocking {
+                                val v = o.root.findViewReimplemented<View>(id)
+                                val im = App.APP?.getSystemService(Context.INPUT_METHOD_SERVICE) as? InputMethodManager
+                                if (v != null) im?.hideSoftInputFromWindow(v.windowToken, 0)
+                            }
+                        }
+                    }
+                    return true
+                }
                 "requestFocus" -> {
                     if (m.params != null) {
                         val aid = m.params?.get("aid")?.asInt

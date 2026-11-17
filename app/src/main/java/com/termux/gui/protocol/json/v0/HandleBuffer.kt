@@ -9,6 +9,8 @@ import com.termux.gui.ConnectionHandler
 import com.termux.gui.Util
 import com.termux.gui.protocol.shared.v0.DataClasses
 import com.termux.gui.protocol.shared.v0.V0Shared
+import com.termux.gui.views.BitmapSurfaceView
+import com.termux.gui.views.HardwareBitmapSurfaceView
 import java.io.DataOutputStream
 import java.io.FileDescriptor
 import java.lang.reflect.InvocationTargetException
@@ -123,8 +125,10 @@ class HandleBuffer {
                 "blitBuffer" -> {
                     val buffer = buffers[m.params?.get("bid")?.asInt]
                     if (buffer != null) {
-                        buffer.btm.copyPixelsFromBuffer(buffer.buff)
-                        buffer.buff.position(0)
+                        synchronized(buffer) {
+                            buffer.btm.copyPixelsFromBuffer(buffer.buff)
+                            buffer.buff.position(0)
+                        }
                     }
                     return true
                 }
@@ -137,12 +141,18 @@ class HandleBuffer {
                     if (buffer != null && id != null) {
                         if (a != null) {
                             V0Shared.runOnUIThreadActivityStarted(a) {
-                                it.findViewReimplemented<ImageView>(id)?.setImageBitmap(buffer.btm)
+                                val view = it.findViewReimplemented<android.view.View>(id)
+                                if (view is HardwareBitmapSurfaceView) view.setFrame(buffer.btm, buffer)
+                                else if (view is BitmapSurfaceView) view.setFrame(buffer.btm, buffer)
+                                else if (view is ImageView) view.setImageBitmap(buffer.btm)
                             }
                         }
                         if (o != null) {
                             Util.runOnUIThreadBlocking {
-                                o.root.findViewReimplemented<ImageView>(id)?.setImageBitmap(buffer.btm)
+                                val view = o.root.findViewReimplemented<android.view.View>(id)
+                                if (view is HardwareBitmapSurfaceView) view.setFrame(buffer.btm, buffer)
+                                else if (view is BitmapSurfaceView) view.setFrame(buffer.btm, buffer)
+                                else if (view is ImageView) view.setImageBitmap(buffer.btm)
                             }
                         }
                     }

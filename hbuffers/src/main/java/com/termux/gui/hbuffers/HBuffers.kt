@@ -1,6 +1,7 @@
 package com.termux.gui.hbuffers
 
 import android.hardware.HardwareBuffer
+import android.graphics.Bitmap
 import android.opengl.EGLContext
 import android.opengl.EGLDisplay
 import android.os.Build
@@ -11,6 +12,7 @@ class HBuffers {
     companion object {
         
         external fun sendHardwareBuffer(fd: Int, b: HardwareBuffer): Int
+        external fun copyBitmapToBuffer(bitmap: Bitmap, buffer: HardwareBuffer): Int
         private external fun nativeHardwareBufferToEGLImageKHR(disp: Long, b: HardwareBuffer): Long
         
         init {

@@ -1,6 +1,7 @@
 #include <cerrno>
 #include <jni.h>
 #include <android/log.h>
+#include <android/bitmap.h>
 #include <android/hardware_buffer.h>
 #include <android/hardware_buffer_jni.h>
 #include <android/native_window.h>
@@ -11,6 +12,8 @@
 #include <EGL/eglext.h>
 
 #include <csignal>
+#include <cstring>
+#include <cstdint>
 
 #include <atomic>
 
@@ -66,4 +69,50 @@ Java_com_termux_gui_hbuffers_HBuffers_00024Companion_sendHardwareBuffer(JNIEnv *
     // Ignore sigpipe as a precaution, AHardwareBuffer_sendHandleToUnixSocket doesn't use the NO_SIGNAL flag for sendmsg
     signal(SIGPIPE, SIG_IGN);
     return AHardwareBuffer_sendHandleToUnixSocket(b, fd);
+}
+
+extern "C"
+JNIEXPORT jint JNICALL
+Java_com_termux_gui_hbuffers_HBuffers_00024Companion_copyBitmapToBuffer(JNIEnv *env, jobject thiz,
+                                                                        jobject bitmap, jobject bufferJ) {
+    AndroidBitmapInfo bitmapInfo{};
+    if (AndroidBitmap_getInfo(env, bitmap, &bitmapInfo) != ANDROID_BITMAP_RESULT_SUCCESS
+        || bitmapInfo.format != ANDROID_BITMAP_FORMAT_RGBA_8888) {
+        return -1;
+    }
+
+    AHardwareBuffer* buffer = AHardwareBuffer_fromHardwareBuffer(env, bufferJ);
+    if (buffer == nullptr) return -2;
+
+    AHardwareBuffer_Desc desc{};
+    AHardwareBuffer_describe(buffer, &desc);
+    if (desc.format != AHARDWAREBUFFER_FORMAT_R8G8B8A8_UNORM
+        || desc.width != bitmapInfo.width || desc.height != bitmapInfo.height) {
+        return -3;
+    }
+
+    void* source = nullptr;
+    if (AndroidBitmap_lockPixels(env, bitmap, &source) != ANDROID_BITMAP_RESULT_SUCCESS) {
+        return -4;
+    }
+
+    void* destination = nullptr;
+    const int lockResult = AHardwareBuffer_lock(
+        buffer, AHARDWAREBUFFER_USAGE_CPU_WRITE_OFTEN, -1, nullptr, &destination);
+    if (lockResult != 0 || destination == nullptr) {
+        AndroidBitmap_unlockPixels(env, bitmap);
+        return lockResult == 0 ? -5 : lockResult;
+    }
+
+    const auto* sourceBytes = static_cast<const uint8_t*>(source);
+    auto* destinationBytes = static_cast<uint8_t*>(destination);
+    for (uint32_t y = 0; y < desc.height; ++y) {
+        const auto* sourceRow = sourceBytes + y * bitmapInfo.stride;
+        auto* destinationRow = destinationBytes + y * desc.stride * 4;
+        std::memcpy(destinationRow, sourceRow, desc.width * 4);
+    }
+
+    const int unlockResult = AHardwareBuffer_unlock(buffer, nullptr);
+    AndroidBitmap_unlockPixels(env, bitmap);
+    return unlockResult;
 }

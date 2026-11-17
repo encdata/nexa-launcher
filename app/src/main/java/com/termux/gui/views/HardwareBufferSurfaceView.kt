@@ -126,6 +126,7 @@ class HardwareBufferSurfaceView(c: Context) : SurfaceView(c), Choreographer.Fram
     val RENDER_LOCK = Object()
     
     private var keyListener: OnKeyListener? = null
+    var textListener: ((String) -> Unit)? = null
     var surfaceChangedListener: SurfaceChangedListener? = null
     var frameCallback: FrameCallbackListener? = null
     var config: Config = Config()
@@ -159,6 +160,10 @@ class HardwareBufferSurfaceView(c: Context) : SurfaceView(c), Choreographer.Fram
                 render()
             }
         }
+    }
+
+    fun refreshBufferContents() {
+        synchronized(RENDER_LOCK) { render() }
     }
     
     fun setFrameRate(rate: Float): Boolean {
@@ -612,12 +617,15 @@ class HardwareBufferSurfaceView(c: Context) : SurfaceView(c), Choreographer.Fram
     override fun onCreateInputConnection(outAttrs: EditorInfo): InputConnection {
         val l = keyListener
         return if (l != null) {
-            outAttrs.inputType = EditorInfo.TYPE_NULL
-            RawInputConnection(l)
+            outAttrs.inputType = EditorInfo.TYPE_CLASS_TEXT or EditorInfo.TYPE_TEXT_FLAG_MULTI_LINE
+            outAttrs.imeOptions = EditorInfo.IME_FLAG_NO_EXTRACT_UI
+            RawInputConnection(l) { textListener?.invoke(it) }
         } else {
             super.onCreateInputConnection(outAttrs)
         }
     }
+
+    override fun onCheckIsTextEditor(): Boolean = keyListener != null
     
     override fun setOnKeyListener(l: OnKeyListener?) {
         keyListener = l

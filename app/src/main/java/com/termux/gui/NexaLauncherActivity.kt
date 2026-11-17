@@ -112,6 +112,17 @@ class NexaLauncherActivity : GUIActivity() {
                 exit 0
             fi
 
+            MISSING_PACKAGES=""
+            for PACKAGE in git python python-pillow termux-tools; do
+                STATUS=$(dpkg-query -W -f='${'$'}{Status}' "${'$'}PACKAGE" 2>/dev/null || true)
+                if [ "${'$'}STATUS" != "install ok installed" ]; then
+                    MISSING_PACKAGES="${'$'}MISSING_PACKAGES ${'$'}PACKAGE"
+                fi
+            done
+            if [ -n "${'$'}MISSING_PACKAGES" ]; then
+                pkg install -y ${'$'}MISSING_PACKAGES || exit 1
+            fi
+
             if [ ! -d "${'$'}NEXA_DIR/.git" ]; then
                 git clone https://github.com/encdata/nexa.git "${'$'}NEXA_DIR" || exit 1
             else

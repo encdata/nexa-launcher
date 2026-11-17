@@ -323,6 +323,12 @@ class Util {
             map[MotionEvent.ACTION_POINTER_UP] = "pointer_up"
             map[MotionEvent.ACTION_CANCEL] = "cancel"
             map[MotionEvent.ACTION_MOVE] = "move"
+            map[MotionEvent.ACTION_HOVER_ENTER] = "hover_move"
+            map[MotionEvent.ACTION_HOVER_MOVE] = "hover_move"
+            map[MotionEvent.ACTION_HOVER_EXIT] = "hover_exit"
+            map[MotionEvent.ACTION_SCROLL] = "scroll"
+            map[MotionEvent.ACTION_BUTTON_PRESS] = "button_press"
+            map[MotionEvent.ACTION_BUTTON_RELEASE] = "button_release"
             TOUCH_EVENT_MAP = Collections.unmodifiableMap(map)
         }
 
@@ -383,16 +389,21 @@ class Util {
         @SuppressLint("ClickableViewAccessibility")
         fun setTouchListenerJSON(v: View, aid: Int, enabled: Boolean, eventQueue: LinkedBlockingQueue<ConnectionHandler.Event>, consume: Boolean = true) {
             if (enabled) {
+                setGenericMotionListenerJSON(v, aid, eventQueue)
                 val map = HashMap<String, Any>()
                 map["id"] = v.id
                 map["aid"] = aid
-                data class PointerData(val x: Int, val y: Int, val id: Int)
+                data class PointerData(val x: Int, val y: Int, val id: Int, val toolType: Int)
                 v.setOnTouchListener { _, event ->
                     val mapped = TOUCH_EVENT_MAP[event.actionMasked]
                     if (mapped != null) {
                         map["action"] = mapped
                         map["index"] = event.actionIndex
                         map["time"] = event.eventTime
+                        map["button"] = event.actionButton
+                        map["buttonState"] = event.buttonState
+                        map["horizontalScroll"] = event.getAxisValue(MotionEvent.AXIS_HSCROLL)
+                        map["verticalScroll"] = event.getAxisValue(MotionEvent.AXIS_VSCROLL)
                         val pd = LinkedList<PointerData>()
                         val rev = Matrix()
                         var inv = false
@@ -406,9 +417,11 @@ class Util {
                                 pos[0] = event.getX(i)
                                 pos[1] = event.getY(i)
                                 rev.mapPoints(pos)
-                                pd.add(PointerData(pos[0].roundToInt(), pos[1].roundToInt(), event.getPointerId(i)))
+                                pd.add(PointerData(pos[0].roundToInt(), pos[1].roundToInt(),
+                                    event.getPointerId(i), event.getToolType(i)))
                             } else {
-                                pd.add(PointerData(event.getX(i).roundToInt(), event.getY(i).roundToInt(), event.getPointerId(i)))
+                                pd.add(PointerData(event.getX(i).roundToInt(), event.getY(i).roundToInt(),
+                                    event.getPointerId(i), event.getToolType(i)))
                             }
                         }
                         for (i in 0 until event.historySize) {
@@ -420,9 +433,12 @@ class Util {
                                     pos[0] = event.getHistoricalX(a, i)
                                     pos[1] = event.getHistoricalY(a, i)
                                     rev.mapPoints(pos)
-                                    pdh.add(PointerData(pos[0].roundToInt(), pos[1].roundToInt(), event.getPointerId(a)))
+                                    pdh.add(PointerData(pos[0].roundToInt(), pos[1].roundToInt(),
+                                        event.getPointerId(a), event.getToolType(a)))
                                 } else {
-                                    pdh.add(PointerData(event.getHistoricalX(a, i).roundToInt(), event.getHistoricalY(a, i).roundToInt(), event.getPointerId(a)))
+                                    pdh.add(PointerData(event.getHistoricalX(a, i).roundToInt(),
+                                        event.getHistoricalY(a, i).roundToInt(), event.getPointerId(a),
+                                        event.getToolType(a)))
                                 }
                             }
                             map["pointers"] = pdh
@@ -435,6 +451,41 @@ class Util {
                 }
             } else {
                 v.setOnTouchListener(null)
+                v.setOnGenericMotionListener(null)
+            }
+        }
+
+        private fun setGenericMotionListenerJSON(v: View, aid: Int,
+                                                 eventQueue: LinkedBlockingQueue<ConnectionHandler.Event>) {
+            v.setOnGenericMotionListener { _, event ->
+                val action = when (event.actionMasked) {
+                    MotionEvent.ACTION_HOVER_ENTER, MotionEvent.ACTION_HOVER_MOVE -> "hover_move"
+                    MotionEvent.ACTION_HOVER_EXIT -> "hover_exit"
+                    MotionEvent.ACTION_SCROLL -> "scroll"
+                    MotionEvent.ACTION_BUTTON_PRESS -> "button_press"
+                    MotionEvent.ACTION_BUTTON_RELEASE -> "button_release"
+                    else -> return@setOnGenericMotionListener false
+                }
+                val pointers = (0 until event.pointerCount).map { index ->
+                    mapOf("x" to event.getX(index).roundToInt(),
+                         "y" to event.getY(index).roundToInt(),
+                         "id" to event.getPointerId(index),
+                         "toolType" to event.getToolType(index))
+                }
+                val value = mapOf(
+                    "id" to v.id,
+                    "aid" to aid,
+                    "action" to action,
+                    "index" to event.actionIndex,
+                    "time" to event.eventTime,
+                    "button" to event.actionButton,
+                    "buttonState" to event.buttonState,
+                    "horizontalScroll" to event.getAxisValue(MotionEvent.AXIS_HSCROLL),
+                    "verticalScroll" to event.getAxisValue(MotionEvent.AXIS_VSCROLL),
+                    "pointers" to pointers
+                )
+                eventQueue.offer(ConnectionHandler.Event("touch", ConnectionHandler.gson.toJsonTree(value)))
+                true
             }
         }
 

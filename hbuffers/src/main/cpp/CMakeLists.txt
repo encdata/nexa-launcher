@@ -47,6 +47,7 @@ target_link_libraries( # Specifies the target library.
         # included in the NDK.
         ${log-lib}
         android
+        jnigraphics
         EGL
         GLESv2
         -Wl,--build-id=none)
