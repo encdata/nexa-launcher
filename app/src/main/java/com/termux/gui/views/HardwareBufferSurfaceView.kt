@@ -164,6 +164,16 @@ open class HardwareBufferSurfaceView(c: Context) : SurfaceView(c), Choreographer
         }
     }
 
+    protected fun clearBuffer() {
+        synchronized(RENDER_LOCK) {
+            buffer = null
+            if (bufferImage != EGLImageKHR.EGL_NO_IMAGE_KHR && disp != EGL14.EGL_NO_DISPLAY) {
+                EGLImageKHR.eglDestroyImageKHR(disp, bufferImage)
+            }
+            bufferImage = EGLImageKHR.EGL_NO_IMAGE_KHR
+        }
+    }
+
     fun refreshBufferContents() {
         synchronized(RENDER_LOCK) { render() }
     }

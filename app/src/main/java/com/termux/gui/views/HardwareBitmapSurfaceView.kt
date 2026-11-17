@@ -11,22 +11,40 @@ class HardwareBitmapSurfaceView(context: Context) : HardwareBufferSurfaceView(co
     private data class Frame(val bitmap: Bitmap, val lock: Any)
 
     private val frameLock = Any()
-    private val renderThread = HandlerThread("nexa-hardware-frame").apply { start() }
-    private val renderHandler = Handler(renderThread.looper)
+    private var renderThread: HandlerThread? = null
+    private var renderHandler: Handler? = null
     private val frameTask = Runnable { presentLatestFrame() }
     private var pendingFrame: Frame? = null
     private var buffer: HardwareBuffer? = null
+    @Volatile private var detached = false
+
+    init {
+        startRenderThread()
+    }
+
+    private fun startRenderThread() {
+        val thread = HandlerThread("nexa-hardware-frame").apply { start() }
+        renderThread = thread
+        renderHandler = Handler(thread.looper)
+    }
 
     fun setFrame(bitmap: Bitmap, lock: Any) {
-        synchronized(frameLock) { pendingFrame = Frame(bitmap, lock) }
-        renderHandler.removeCallbacks(frameTask)
-        renderHandler.post(frameTask)
+        synchronized(frameLock) {
+            if (detached) return
+            pendingFrame = Frame(bitmap, lock)
+            renderHandler?.let {
+                it.removeCallbacks(frameTask)
+                it.post(frameTask)
+            }
+        }
     }
 
     private fun presentLatestFrame() {
+        if (detached) return
         val frame = synchronized(frameLock) { pendingFrame } ?: return
         synchronized(frame.lock) {
             synchronized(RENDER_LOCK) {
+                if (detached) return
                 val current = buffer
                 if (current == null || current.width != frame.bitmap.width
                     || current.height != frame.bitmap.height) {
@@ -54,16 +72,37 @@ class HardwareBitmapSurfaceView(context: Context) : HardwareBufferSurfaceView(co
         }
         val hasNewFrame = synchronized(frameLock) { pendingFrame !== frame }
         if (hasNewFrame) {
-            renderHandler.removeCallbacks(frameTask)
-            renderHandler.post(frameTask)
+            synchronized(frameLock) {
+                renderHandler?.let {
+                    it.removeCallbacks(frameTask)
+                    it.post(frameTask)
+                }
+            }
+        }
+    }
+
+    override fun onAttachedToWindow() {
+        super.onAttachedToWindow()
+        synchronized(frameLock) {
+            detached = false
+            if (renderThread?.isAlive != true) startRenderThread()
         }
     }
 
     override fun onDetachedFromWindow() {
-        renderThread.quitSafely()
-        renderThread.join()
-        super.onDetachedFromWindow()
-        buffer?.close()
-        buffer = null
+        synchronized(frameLock) {
+            detached = true
+            pendingFrame = null
+            renderHandler?.removeCallbacks(frameTask)
+            renderThread?.quitSafely()
+            renderHandler = null
+            renderThread = null
+        }
+        synchronized(RENDER_LOCK) {
+            super.onDetachedFromWindow()
+            clearBuffer()
+            buffer?.close()
+            buffer = null
+        }
     }
 }
