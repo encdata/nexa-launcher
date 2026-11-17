@@ -41,6 +41,7 @@ import com.termux.gui.protocol.shared.v0.RecyclerListAdapter
 import com.termux.gui.protocol.shared.v0.V0Shared
 import com.termux.gui.protocol.shared.v0.ViewAnimation
 import com.termux.gui.protocol.shared.v0.ViewStyle
+import com.termux.gui.views.HardwareBufferSurfaceView
 import java.io.DataOutputStream
 import java.util.*
 import java.util.concurrent.LinkedBlockingQueue
@@ -60,6 +61,25 @@ class HandleView {
                        eventQueue: LinkedBlockingQueue<ConnectionHandler.Event>) : Boolean {
             operator fun Regex.contains(text: String?): Boolean = if (text == null) false else this.matches(text)
             when (m.method) {
+                "setSurfaceFrameTransform" -> {
+                    val aid = m.params?.get("aid")?.asInt
+                    val id = m.params?.get("id")?.asInt
+                    val stretch = m.params?.get("stretch")?.asBoolean ?: false
+                    val flipVertical = m.params?.get("flipVertical")?.asBoolean ?: false
+                    val activity = activities[aid]
+                    if (activity != null && id != null) {
+                        V0Shared.runOnUIThreadActivityStarted(activity) {
+                            val view = it.findViewReimplemented<HardwareBufferSurfaceView>(id)
+                            view?.let { surface ->
+                                synchronized(surface.RENDER_LOCK) {
+                                    surface.stretchBufferToView = stretch
+                                    surface.flipBufferVertically = flipVertical
+                                }
+                            }
+                        }
+                    }
+                    return true
+                }
                 in Regex("create.*|registerReusableObject") -> {
                     if (m.params != null) {
                         Create.handleCreateMessage(m, activities, overlays, rand, out, app, eventQueue)

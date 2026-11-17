@@ -130,6 +130,8 @@ open class HardwareBufferSurfaceView(c: Context) : SurfaceView(c), Choreographer
     var surfaceChangedListener: SurfaceChangedListener? = null
     var frameCallback: FrameCallbackListener? = null
     var config: Config = Config()
+    var stretchBufferToView = false
+    var flipBufferVertically = false
     
     private var buffer: HardwareBuffer? = null
     private var bufferImage: EGLImageKHR = EGLImageKHR.EGL_NO_IMAGE_KHR
@@ -236,7 +238,7 @@ open class HardwareBufferSurfaceView(c: Context) : SurfaceView(c), Choreographer
                     1f, 0f, // bottom right vertex
                     1f, 1f // top right vertex
                 )
-                if (bWidth != surfaceWidth) {
+                if (!stretchBufferToView && bWidth != surfaceWidth) {
                     when (config.x) {
                         Config.OnDimensionMismatch.CENTER_AXIS -> {
                             val marginPX = (bWidth.toFloat() - surfaceWidth.toFloat())/2f
@@ -261,7 +263,7 @@ open class HardwareBufferSurfaceView(c: Context) : SurfaceView(c), Choreographer
                         }
                     }
                 }
-                if (bHeight != surfaceHeight) {
+                if (!stretchBufferToView && bHeight != surfaceHeight) {
                     when (config.y) {
                         Config.OnDimensionMismatch.CENTER_AXIS -> {
                             val marginPX = (bHeight.toFloat() - surfaceHeight.toFloat())/2f
@@ -285,6 +287,10 @@ open class HardwareBufferSurfaceView(c: Context) : SurfaceView(c), Choreographer
                             }
                         }
                     }
+                }
+                if (flipBufferVertically) {
+                    for (i in 1 until textureArray.size step 2)
+                        textureArray[i] = 1f - textureArray[i]
                 }
                 
                 
