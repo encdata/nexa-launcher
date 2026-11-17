@@ -606,7 +606,6 @@ open class HardwareBufferSurfaceView(c: Context) : SurfaceView(c), Choreographer
         }
         
         holder.setFormat(PixelFormat.RGBA_8888)
-        setZOrderOnTop(true)
         
         initEGL()
         holder.addCallback(callback)

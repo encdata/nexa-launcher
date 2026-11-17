@@ -424,6 +424,7 @@ class Create {
                             } else {
                                 BitmapSurfaceView(it)
                             }
+                            v.setZOrderOnTop(m.params?.get("zorderontop")?.asBoolean ?: true)
                             id = Util.generateViewID(rand, it)
                             v.id = id
                             if (v is HardwareBufferSurfaceView) {
@@ -874,6 +875,7 @@ class Create {
                         } else {
                             BitmapSurfaceView(app)
                         }
+                        v.setZOrderOnTop(m.params?.get("zorderontop")?.asBoolean ?: true)
                         val id = Util.generateViewIDRaw(rand, o.usedIds)
                         Util.runOnUIThreadBlocking {
                             v.id = id
