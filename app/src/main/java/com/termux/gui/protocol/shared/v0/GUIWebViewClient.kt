@@ -10,7 +10,11 @@ import android.view.ViewGroup
 import android.webkit.*
 
 @Suppress("OVERRIDE_DEPRECATION")
-class GUIWebViewClient(private val l: WebEventListener, var allowNavigation: Boolean = false) : WebViewClient() {
+class GUIWebViewClient(
+    private val l: WebEventListener,
+    var allowNavigation: Boolean = false,
+    private val mainFrameErrorsOnly: Boolean = false
+) : WebViewClient() {
     @Suppress("Deprecation")
     override fun shouldOverrideUrlLoading(view: WebView?, url: String?): Boolean {
         if (url != null)
@@ -53,18 +57,18 @@ class GUIWebViewClient(private val l: WebEventListener, var allowNavigation: Boo
 
     @Suppress("Deprecation")
     override fun onReceivedError(view: WebView?, errorCode: Int, description: String?, failingUrl: String?) {
-        if (failingUrl != null && description != null)
+        if (!mainFrameErrorsOnly && failingUrl != null && description != null)
             l.onReceivedError(failingUrl, description, errorCode)
     }
 
     @Suppress("Deprecation")
     override fun onReceivedError(view: WebView?, request: WebResourceRequest?, error: WebResourceError?) {
-        if (error != null && request != null)
+        if (error != null && request != null && (!mainFrameErrorsOnly || request.isForMainFrame))
             onReceivedError(view, error.errorCode, error.description.toString(), request.url.toString())
     }
 
     override fun onReceivedHttpError(view: WebView?, request: WebResourceRequest?, errorResponse: WebResourceResponse?) {
-        if (request != null && errorResponse != null)
+        if (request != null && errorResponse != null && (!mainFrameErrorsOnly || request.isForMainFrame))
             l.onHTTPError(request.url.toString(), errorResponse.statusCode)
     }
 

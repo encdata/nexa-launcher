@@ -13,6 +13,7 @@ import android.webkit.WebView
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.view.WindowInsetsCompat
 import com.google.gson.JsonElement
+import com.termux.gui.protocol.shared.v0.NexaWebView
 import java.io.Serializable
 import java.util.*
 
@@ -227,6 +228,33 @@ open class GUIActivity : AppCompatActivity() {
                 destroyWebViews(v.getChildAt(i))
             }
         }
+    }
+
+    private fun setWebViewsPaused(v: View?, paused: Boolean) {
+        if (v is WebView) {
+            if (paused) v.onPause() else v.onResume()
+            return
+        }
+        if (v is ViewGroup) {
+            for (i in 0 until v.childCount) {
+                setWebViewsPaused(v.getChildAt(i), paused)
+            }
+        }
+    }
+
+    override fun onPause() {
+        val root = findViewById<ViewGroup>(R.id.root)
+        setWebViewsPaused(root, true)
+        // WebView timer pausing is process-wide, so only do this when the launcher Activity backgrounds.
+        NexaWebView.pauseAllTimers()
+        super.onPause()
+    }
+
+    override fun onResume() {
+        super.onResume()
+        val root = findViewById<ViewGroup>(R.id.root)
+        setWebViewsPaused(root, false)
+        NexaWebView.resumeAllTimers()
     }
     
     override fun onDestroy() {

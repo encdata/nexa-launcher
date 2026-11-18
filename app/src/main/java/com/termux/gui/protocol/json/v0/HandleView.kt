@@ -36,6 +36,7 @@ import com.google.gson.JsonPrimitive
 import com.termux.gui.*
 import com.termux.gui.protocol.shared.v0.BitmapCache
 import com.termux.gui.protocol.shared.v0.DataClasses
+import com.termux.gui.protocol.shared.v0.ElectronBridge
 import com.termux.gui.protocol.shared.v0.GUIWebViewClient
 import com.termux.gui.protocol.shared.v0.RecyclerListAdapter
 import com.termux.gui.protocol.shared.v0.V0Shared
@@ -1118,24 +1119,23 @@ class HandleView {
                         val a = activities[aid]
                         val o = overlays[aid]
                         if (id != null && vis != null && vis >= 0 && vis <= 2) {
+                            fun setVisibility(view: View?) {
+                                if (view == null) return
+                                view.visibility = when (vis) {
+                                    0 -> View.GONE
+                                    1 -> View.INVISIBLE
+                                    else -> View.VISIBLE
+                                }
+                                if (view is WebView) ElectronBridge.setVisible(view, vis == 2)
+                            }
                             if (a != null) {
                                 V0Shared.runOnUIThreadActivityStarted(a) {
-                                    it.findViewReimplemented<View>(id)?.visibility = when (vis) {
-                                        0 -> View.GONE
-                                        1 -> View.INVISIBLE
-                                        2 -> View.VISIBLE
-                                        else -> {View.VISIBLE}
-                                    }
+                                    setVisibility(it.findViewReimplemented<View>(id))
                                 }
                             }
                             if (o != null) {
                                 Util.runOnUIThreadBlocking {
-                                    o.root.findViewReimplemented<View>(id)?.visibility = when (vis) {
-                                        0 -> View.GONE
-                                        1 -> View.INVISIBLE
-                                        2 -> View.VISIBLE
-                                        else -> {View.VISIBLE}
-                                    }
+                                    setVisibility(o.root.findViewReimplemented<View>(id))
                                 }
                             }
                         }
@@ -1364,6 +1364,20 @@ class HandleView {
                         if (a != null && id != null) {
                             V0Shared.runOnUIThreadActivityStarted(a) {
                                 it.findViewReimplemented<WebView>(id)?.goForward()
+                            }
+                        }
+                    }
+                    return true
+                }
+                "webviewBridgeReply" -> {
+                    val aid = m.params?.get("aid")?.asInt
+                    val id = m.params?.get("id")?.asInt
+                    val message = m.params?.get("message")?.asString
+                    val activity = activities[aid]
+                    if (activity != null && id != null && message != null) {
+                        V0Shared.runOnUIThreadActivityStarted(activity) {
+                            it.findViewReimplemented<WebView>(id)?.let { webView ->
+                                ElectronBridge.reply(webView, message)
                             }
                         }
                     }

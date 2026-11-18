@@ -691,9 +691,29 @@ class Create {
                     }
                     if (m.method == "createWebView") {
                         var id = -1
+                        val electronBridge = m.params?.get("electronBridge")
+                            ?.takeIf { it.isJsonObject }?.asJsonObject
+                        val enableJavascript = m.params?.get("enableJavascript")?.asBoolean == true
+                        var preloadFetchError: String? = null
+                        val bridgePreload = electronBridge?.let { bridge ->
+                            val basePreload = bridge.get("preload")?.asString ?: ""
+                            val preloadUrl = bridge.get("preloadUrl")?.asString
+                            if (preloadUrl != null) {
+                                try {
+                                    basePreload + "\n" + ElectronBridge.fetchPreload(
+                                        preloadUrl, bridge.get("ipcToken")?.asString ?: "")
+                                } catch (error: Exception) {
+                                    preloadFetchError = error.message ?: "electron preload fetch failed"
+                                    basePreload
+                                }
+                            } else {
+                                basePreload
+                            }
+                        } ?: ""
                         V0Shared.runOnUIThreadActivityStartedBlocking(a) {
-                            val v = WebView(app)
+                            val v = NexaWebView(app)
                             val settings = v.settings
+                            if (electronBridge != null || enableJavascript) settings.javaScriptEnabled = true
                             settings.allowFileAccess = false
                             settings.allowContentAccess = false
                             settings.allowFileAccessFromFileURLs = false
@@ -707,12 +727,16 @@ class Create {
                             val l = object: WebEventListener {
                                 override fun onNavigation(url: String) {
                                     val map = HashMap<String, Any?>()
+                                    map["aid"] = aid
+                                    map["id"] = id
                                     map["url"] = url
                                     eventQueue.offer(ConnectionHandler.Event("webviewNavigation", ConnectionHandler.gson.toJsonTree(map)))
                                 }
 
                                 override fun onHTTPError(url: String, code: Int) {
                                     val map = HashMap<String, Any?>()
+                                    map["aid"] = aid
+                                    map["id"] = id
                                     map["url"] = url
                                     map["code"] = code
                                     eventQueue.offer(ConnectionHandler.Event("webviewHTTPError", ConnectionHandler.gson.toJsonTree(map)))
@@ -720,36 +744,71 @@ class Create {
 
                                 override fun onReceivedError(url: String, description: String, code: Int) {
                                     val map = HashMap<String, Any?>()
+                                    map["aid"] = aid
+                                    map["id"] = id
                                     map["url"] = url
                                     eventQueue.offer(ConnectionHandler.Event("webviewError", ConnectionHandler.gson.toJsonTree(map)))
                                 }
 
                                 override fun onRenderProcessGone(v: WebView) {
+                                    if (electronBridge != null) ElectronBridge.remove(v)
+                                    a.usedIds.remove(v.id)
                                     val map = HashMap<String, Any?>()
+                                    map["aid"] = aid
+                                    map["id"] = id
                                     eventQueue.offer(ConnectionHandler.Event("webviewDestroyed", ConnectionHandler.gson.toJsonTree(map)))
                                 }
 
                                 override fun onProgressChanged(progress: Int) {
+                                    if (electronBridge != null && progress < 100) return
                                     val map = HashMap<String, Any?>()
+                                    map["aid"] = aid
+                                    map["id"] = id
                                     map["progress"] = progress
                                     eventQueue.offer(ConnectionHandler.Event("webviewProgress", ConnectionHandler.gson.toJsonTree(map)))
                                 }
 
                                 override fun onConsoleMessage(m: ConsoleMessage) {
+                                    if (electronBridge != null) return
                                     val map = HashMap<String, Any?>()
+                                    map["aid"] = aid
+                                    map["id"] = id
                                     map["msg"] = m.message()
                                     eventQueue.offer(ConnectionHandler.Event("webviewConsoleMessage", ConnectionHandler.gson.toJsonTree(map)))
                                 }
                             }
                             
                             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                                v.setRendererPriorityPolicy(WebView.RENDERER_PRIORITY_BOUND, true)
+                                // let Android reclaim an oversized renderer; Nexa rebuilds it onRenderProcessGone.
+                                val rendererPriority = WebView.RENDERER_PRIORITY_BOUND
+                                v.setRendererPriorityPolicy(rendererPriority, true)
                             }
-                            v.webViewClient = GUIWebViewClient(l)
+                            v.webViewClient = GUIWebViewClient(
+                                l, mainFrameErrorsOnly = electronBridge != null)
                             v.webChromeClient = GUIWebChromeClient(l)
                             
                             id = Util.generateViewID(rand, it)
                             v.id = id
+                            if (electronBridge != null) {
+                                val error = preloadFetchError ?: run {
+                                    val origins = electronBridge.get("origins")?.asJsonArray
+                                        ?.map { it.asString }?.toSet() ?: emptySet()
+                                    val ipcEndpoint = electronBridge.get("ipcEndpoint")?.asString
+                                    val ipcToken = electronBridge.get("ipcToken")?.asString
+                                    val windowId = electronBridge.get("windowId")?.asInt
+                                    ElectronBridge.install(
+                                        v, origins, bridgePreload, aid, id, eventQueue,
+                                        ipcEndpoint, ipcToken, windowId
+                                    )
+                                }
+                                if (error != null) {
+                                    val event = mapOf("aid" to aid, "id" to id, "error" to error)
+                                    eventQueue.offer(ConnectionHandler.Event(
+                                        "webviewBridgeError",
+                                        ConnectionHandler.gson.toJsonTree(event)
+                                    ))
+                                }
+                            }
                             Util.createViewOptionalsJSON(v, m.params)
                             Util.setViewActivity(it, v, parent)
                         }

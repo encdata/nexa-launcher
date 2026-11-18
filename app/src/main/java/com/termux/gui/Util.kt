@@ -19,6 +19,7 @@ import androidx.swiperefreshlayout.widget.SwipeRefreshLayout
 import com.google.android.material.tabs.TabLayout
 import com.google.gson.JsonElement
 import com.google.protobuf.MessageLite
+import com.termux.gui.protocol.shared.v0.ElectronBridge
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
@@ -493,6 +494,7 @@ class Util {
          * Destroy a WebView, making sure everything is freed.
          */
         fun destroyWebView(v: WebView) {
+            ElectronBridge.remove(v)
             v.clearCache(false)
             v.clearHistory()
             v.onPause()
