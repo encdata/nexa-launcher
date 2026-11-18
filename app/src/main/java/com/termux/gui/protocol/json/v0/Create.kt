@@ -769,11 +769,15 @@ class Create {
                                 }
 
                                 override fun onConsoleMessage(m: ConsoleMessage) {
-                                    if (electronBridge != null) return
+                                    if (electronBridge != null &&
+                                        m.messageLevel() != ConsoleMessage.MessageLevel.ERROR) return
                                     val map = HashMap<String, Any?>()
                                     map["aid"] = aid
                                     map["id"] = id
-                                    map["msg"] = m.message()
+                                    map["msg"] = m.message().take(1000)
+                                    map["level"] = m.messageLevel().name
+                                    map["source"] = m.sourceId()
+                                    map["line"] = m.lineNumber()
                                     eventQueue.offer(ConnectionHandler.Event("webviewConsoleMessage", ConnectionHandler.gson.toJsonTree(map)))
                                 }
                             }

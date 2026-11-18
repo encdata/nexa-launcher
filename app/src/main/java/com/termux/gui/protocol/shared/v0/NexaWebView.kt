@@ -1,12 +1,33 @@
 package com.termux.gui.protocol.shared.v0
 
 import android.content.Context
+import android.view.View
 import android.webkit.WebView
 import java.util.WeakHashMap
 
 class NexaWebView(context: Context) : WebView(context) {
     init {
         WebViewTimerPolicy.register(this)
+    }
+
+    override fun onVisibilityChanged(changedView: View, visibility: Int) {
+        super.onVisibilityChanged(changedView, visibility)
+        WebViewTimerPolicy.update()
+    }
+
+    override fun onWindowVisibilityChanged(visibility: Int) {
+        super.onWindowVisibilityChanged(visibility)
+        WebViewTimerPolicy.update()
+    }
+
+    override fun onAttachedToWindow() {
+        super.onAttachedToWindow()
+        WebViewTimerPolicy.update()
+    }
+
+    override fun onDetachedFromWindow() {
+        super.onDetachedFromWindow()
+        WebViewTimerPolicy.update()
     }
 
     override fun destroy() {
@@ -22,21 +43,31 @@ class NexaWebView(context: Context) : WebView(context) {
 
 private object WebViewTimerPolicy {
     private val views = WeakHashMap<NexaWebView, Unit>()
-    private var paused = false
+    private var forcedPause: Boolean? = null
+    private var appliedPause: Boolean? = null
 
     fun register(view: NexaWebView) {
         views[view] = Unit
-        if (paused) view.pauseTimers()
+        update()
     }
 
     fun remove(view: NexaWebView) {
         views.remove(view)
+        update(view)
     }
 
     fun setPaused(value: Boolean) {
-        if (paused == value) return
-        paused = value
-        val view = views.keys.firstOrNull() ?: return
-        if (paused) view.pauseTimers() else view.resumeTimers()
+        forcedPause = value
+        update()
+    }
+
+    fun update(fallback: NexaWebView? = null) {
+        val activeViews = views.keys.toList()
+        val shouldPause = forcedPause
+            ?: (activeViews.isNotEmpty() && activeViews.none { it.isShown })
+        if (appliedPause == shouldPause) return
+        val view = activeViews.firstOrNull() ?: fallback ?: return
+        if (shouldPause) view.pauseTimers() else view.resumeTimers()
+        appliedPause = shouldPause
     }
 }
