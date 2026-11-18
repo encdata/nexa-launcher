@@ -15,6 +15,7 @@ import java.io.DataInputStream
 import java.net.HttpURLConnection
 import java.net.URL
 import java.io.ByteArrayOutputStream
+import java.util.LinkedHashMap
 import java.util.WeakHashMap
 import java.util.concurrent.ArrayBlockingQueue
 import java.util.concurrent.ExecutorService
@@ -42,6 +43,7 @@ object ElectronBridge {
         var closed: Boolean = false,
         var paused: Boolean = false,
         var sendErrorReported: Boolean = false,
+        val consoleErrorCounts: LinkedHashMap<Long, Int> = LinkedHashMap(),
         var replyProxy: JavaScriptReplyProxy? = null,
         var scriptHandler: ScriptHandler? = null
     )
@@ -198,6 +200,34 @@ object ElectronBridge {
     fun reply(webView: WebView, message: String) {
         val proxy = synchronized(states) { states[webView]?.replyProxy }
         proxy?.postMessage(message)
+    }
+
+    fun sampleConsoleError(webView: WebView, message: String, source: String, line: Int): Int? {
+        val state = synchronized(states) { states[webView] } ?: return 1
+        val key = consoleErrorKey(message.take(1000), source.take(500), line)
+        synchronized(state) {
+            val count = (state.consoleErrorCounts[key] ?: 0) + 1
+            if (key !in state.consoleErrorCounts && state.consoleErrorCounts.size >= 128) {
+                state.consoleErrorCounts.remove(state.consoleErrorCounts.keys.first())
+            }
+            state.consoleErrorCounts[key] = count
+            return count.takeIf { (it and (it - 1)) == 0 }
+        }
+    }
+
+    private fun consoleErrorKey(message: String, source: String, line: Int): Long {
+        var hash = hashConsoleErrorPart(-3750763034362895579L, message)
+        hash = hashConsoleErrorPart(hash, source)
+        hash = hashConsoleErrorPart(hash, line.toString())
+        return hash
+    }
+
+    private fun hashConsoleErrorPart(seed: Long, value: String): Long {
+        var hash = seed
+        for (character in value) {
+            hash = (hash xor character.code.toLong()) * 1099511628211L
+        }
+        return (hash xor 255L) * 1099511628211L
     }
 
     fun setVisible(webView: WebView, visible: Boolean) {

@@ -769,8 +769,14 @@ class Create {
                                 }
 
                                 override fun onConsoleMessage(m: ConsoleMessage) {
-                                    if (electronBridge != null &&
-                                        m.messageLevel() != ConsoleMessage.MessageLevel.ERROR) return
+                                    val repeatCount = if (electronBridge != null) {
+                                        if (m.messageLevel() != ConsoleMessage.MessageLevel.ERROR) return
+                                        ElectronBridge.sampleConsoleError(
+                                            v, m.message(), m.sourceId(), m.lineNumber()
+                                        ) ?: return
+                                    } else {
+                                        null
+                                    }
                                     val map = HashMap<String, Any?>()
                                     map["aid"] = aid
                                     map["id"] = id
@@ -778,6 +784,7 @@ class Create {
                                     map["level"] = m.messageLevel().name
                                     map["source"] = m.sourceId()
                                     map["line"] = m.lineNumber()
+                                    if (repeatCount != null) map["repeatCount"] = repeatCount
                                     eventQueue.offer(ConnectionHandler.Event("webviewConsoleMessage", ConnectionHandler.gson.toJsonTree(map)))
                                 }
                             }
