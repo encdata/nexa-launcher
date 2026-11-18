@@ -724,6 +724,7 @@ class Create {
                             settings.saveFormData = false
                             settings.savePassword = false
                             
+                            var lastElectronProgress = 0
                             val l = object: WebEventListener {
                                 override fun onNavigation(url: String) {
                                     val map = HashMap<String, Any?>()
@@ -760,7 +761,15 @@ class Create {
                                 }
 
                                 override fun onProgressChanged(progress: Int) {
-                                    if (electronBridge != null && progress < 100) return
+                                    if (electronBridge != null) {
+                                        val currentProgress = progress.coerceIn(0, 100)
+                                        if (currentProgress < lastElectronProgress) {
+                                            lastElectronProgress = 0
+                                        }
+                                        val milestone = currentProgress / 25 * 25
+                                        if (milestone <= lastElectronProgress) return
+                                        lastElectronProgress = milestone
+                                    }
                                     val map = HashMap<String, Any?>()
                                     map["aid"] = aid
                                     map["id"] = id
@@ -807,9 +816,11 @@ class Create {
                                     val ipcEndpoint = electronBridge.get("ipcEndpoint")?.asString
                                     val ipcToken = electronBridge.get("ipcToken")?.asString
                                     val windowId = electronBridge.get("windowId")?.asInt
+                                    val backgroundThrottling = electronBridge
+                                        .get("backgroundThrottling")?.asBoolean ?: true
                                     ElectronBridge.install(
                                         v, origins, bridgePreload, aid, id, eventQueue,
-                                        ipcEndpoint, ipcToken, windowId
+                                        ipcEndpoint, ipcToken, windowId, backgroundThrottling
                                     )
                                 }
                                 if (error != null) {

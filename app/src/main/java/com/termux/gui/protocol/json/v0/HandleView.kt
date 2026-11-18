@@ -1111,6 +1111,31 @@ class HandleView {
                     }
                     return true
                 }
+                "setElectronBackgroundThrottling" -> {
+                    val aid = m.params?.get("aid")?.asInt
+                    val id = m.params?.get("id")?.asInt
+                    val enabled = m.params?.get("enabled")?.asBoolean
+                    val a = activities[aid]
+                    val o = overlays[aid]
+                    if (id != null && enabled != null) {
+                        fun update(view: View?) {
+                            if (view is WebView) {
+                                ElectronBridge.setBackgroundThrottling(view, enabled)
+                            }
+                        }
+                        if (a != null) {
+                            V0Shared.runOnUIThreadActivityStarted(a) {
+                                update(it.findViewReimplemented<View>(id))
+                            }
+                        }
+                        if (o != null) {
+                            Util.runOnUIThreadBlocking {
+                                update(o.root.findViewReimplemented<View>(id))
+                            }
+                        }
+                    }
+                    return true
+                }
                 "setVisibility" -> {
                     if (m.params != null) {
                         val aid = m.params?.get("aid")?.asInt

@@ -104,7 +104,8 @@ object ElectronBridge {
         eventQueue: LinkedBlockingQueue<ConnectionHandler.Event>,
         ipcEndpoint: String?,
         ipcToken: String?,
-        windowId: Int?
+        windowId: Int?,
+        backgroundThrottling: Boolean = true
     ): String? {
         val normalizedOrigins = origins.mapNotNull { normalizeOrigin(Uri.parse(it)) }.toSet()
         if (origins.isEmpty() || origins.any { normalizeOrigin(Uri.parse(it)) == null }) {
@@ -139,6 +140,7 @@ object ElectronBridge {
         synchronized(states) {
             states[webView] = state
         }
+        (webView as? NexaWebView)?.setBackgroundThrottling(backgroundThrottling)
         WebViewCompat.addWebMessageListener(
             webView,
             "nexaElectronNative",
@@ -241,6 +243,12 @@ object ElectronBridge {
         if (webView !is NexaWebView) {
             if (visible) webView.onResume() else webView.onPause()
         }
+    }
+
+    fun setBackgroundThrottling(webView: WebView, enabled: Boolean) {
+        val state = synchronized(states) { states[webView] } ?: return
+        if (state.closed) return
+        (webView as? NexaWebView)?.setBackgroundThrottling(enabled)
     }
 
     fun remove(webView: WebView) {
