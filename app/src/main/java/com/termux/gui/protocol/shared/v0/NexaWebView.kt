@@ -6,28 +6,41 @@ import android.webkit.WebView
 import java.util.WeakHashMap
 
 class NexaWebView(context: Context) : WebView(context) {
+    private var processingPaused: Boolean? = null
+
     init {
         WebViewTimerPolicy.register(this)
     }
 
     override fun onVisibilityChanged(changedView: View, visibility: Int) {
         super.onVisibilityChanged(changedView, visibility)
+        updateProcessingState()
         WebViewTimerPolicy.update()
     }
 
     override fun onWindowVisibilityChanged(visibility: Int) {
         super.onWindowVisibilityChanged(visibility)
+        updateProcessingState()
         WebViewTimerPolicy.update()
     }
 
     override fun onAttachedToWindow() {
         super.onAttachedToWindow()
+        updateProcessingState()
         WebViewTimerPolicy.update()
     }
 
     override fun onDetachedFromWindow() {
         super.onDetachedFromWindow()
+        updateProcessingState()
         WebViewTimerPolicy.update()
+    }
+
+    private fun updateProcessingState() {
+        val shouldPause = !isShown
+        if (processingPaused == shouldPause) return
+        if (shouldPause) super.onPause() else super.onResume()
+        processingPaused = shouldPause
     }
 
     override fun destroy() {
