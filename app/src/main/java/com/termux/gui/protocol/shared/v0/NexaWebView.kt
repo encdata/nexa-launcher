@@ -50,7 +50,7 @@ class NexaWebView(context: Context) : WebView(context) {
 
     companion object {
         fun pauseAllTimers() = WebViewTimerPolicy.setPaused(true)
-        fun resumeAllTimers() = WebViewTimerPolicy.setPaused(false)
+        fun resumeAllTimers() = WebViewTimerPolicy.setPaused(null)
     }
 }
 
@@ -69,7 +69,7 @@ private object WebViewTimerPolicy {
         update(view)
     }
 
-    fun setPaused(value: Boolean) {
+    fun setPaused(value: Boolean?) {
         forcedPause = value
         update()
     }
