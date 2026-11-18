@@ -724,7 +724,6 @@ class Create {
                             settings.saveFormData = false
                             settings.savePassword = false
                             
-                            var lastElectronProgress = 0
                             val l = object: WebEventListener {
                                 override fun onNavigation(url: String) {
                                     val map = HashMap<String, Any?>()
@@ -761,15 +760,7 @@ class Create {
                                 }
 
                                 override fun onProgressChanged(progress: Int) {
-                                    if (electronBridge != null) {
-                                        val currentProgress = progress.coerceIn(0, 100)
-                                        if (currentProgress < lastElectronProgress) {
-                                            lastElectronProgress = 0
-                                        }
-                                        val milestone = currentProgress / 25 * 25
-                                        if (milestone <= lastElectronProgress) return
-                                        lastElectronProgress = milestone
-                                    }
+                                    if (electronBridge != null && progress < 100) return
                                     val map = HashMap<String, Any?>()
                                     map["aid"] = aid
                                     map["id"] = id

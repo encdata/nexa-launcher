@@ -7,6 +7,7 @@ import android.app.Service
 import android.content.ComponentName
 import android.content.Intent
 import android.os.IBinder
+import android.os.SystemClock
 import androidx.core.app.NotificationChannelCompat
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
@@ -23,7 +24,8 @@ class GUIService : Service() {
     companion object {
         private val TAG: String? = GUIService::class.java.canonicalName
         const val NOTIFICATION_ID = 100
-        val requests = ConcurrentLinkedQueue<ConnectionRequest>()
+        private const val REQUEST_POLL_INTERVAL_MS = 100L
+        val requests = LinkedBlockingQueue<ConnectionRequest>()
     }
 
 
@@ -103,50 +105,53 @@ class GUIService : Service() {
 
     init {
         requestWatcher = Thread (fun() {
-            // the number of consecutive milliseconds with no active requests
-            var noRequests = 0
+            var noClientsSince: Long? = SystemClock.elapsedRealtime()
             // the number of active connection on the last loop run
             var lastConnections = 0
+            var foreground = true
             while (!Thread.currentThread().isInterrupted) {
-                val r = requests.poll()
-                val count = pool.activeCount
-                if (count != 0) {
-                    noRequests = 0
+                val r = try {
+                    requests.poll(REQUEST_POLL_INTERVAL_MS, TimeUnit.MILLISECONDS)
+                } catch (_: InterruptedException) {
+                    Thread.currentThread().interrupt()
+                    return
                 }
+                val count = pool.activeCount
+                val now = SystemClock.elapsedRealtime()
+                val background = Settings.instance.background
+                val timeout = Settings.instance.timeout
+                if (r != null) noClientsSince = now
+                if (count > 0 || timeout < 0) noClientsSince = null
+                else if (noClientsSince == null) noClientsSince = now
+
                 // update the connection count in the notification
-                if (lastConnections != pool.activeCount) {
+                if (lastConnections != count) {
                     lastConnections = count
-                    startForeground(NOTIFICATION_ID, notification)
+                    if (!background || count > 0) {
+                        startForeground(NOTIFICATION_ID, notification)
+                        foreground = true
+                    }
                 }
                 // automatically close the service if no clients are connected and the setting is active
-                if (Settings.instance.background && count == 0) {
+                if (background && count == 0 && foreground) {
                     stopForeground(true)
+                    foreground = false
+                } else if (!background && !foreground) {
+                    startForeground(NOTIFICATION_ID, notification)
+                    foreground = true
                 }
                 // submit a new connection to the worker pool
                 if (r != null) {
                     Logger.log(1, TAG, "new connection")
-                    noRequests = 0
                     try {
                         pool.submit(ConnectionHandler(r, this))
                     } catch (ignored: RejectedExecutionException) {}
-                } else {
-                    try {
-                        Thread.sleep(1)
-                        // stop if timeout without active connections or new requests is exceeded
-                        if (Settings.instance.timeout >= 0) {
-                            noRequests++
-                            if (noRequests > Settings.instance.timeout * 1000 && count == 0) {
-                                stopSelf()
-                                return
-                            }
-                        } else {
-                            noRequests = 0
-                        }
-                    } catch (e: InterruptedException) {
-                        Thread.currentThread().interrupt()
-                    }
+                } else if (timeout >= 0 && count == 0 &&
+                    now - (noClientsSince ?: now) >= timeout * 1000L) {
+                    stopSelf()
+                    return
                 }
             }
-        })
+        }, "nexa-request-watcher")
     }
 }
