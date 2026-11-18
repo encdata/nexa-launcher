@@ -41,6 +41,7 @@ import com.termux.gui.protocol.shared.v0.RecyclerListAdapter
 import com.termux.gui.protocol.shared.v0.V0Shared
 import com.termux.gui.protocol.shared.v0.ViewAnimation
 import com.termux.gui.protocol.shared.v0.ViewStyle
+import com.termux.gui.views.HardwareBitmapSurfaceView
 import com.termux.gui.views.HardwareBufferSurfaceView
 import java.io.DataOutputStream
 import java.util.*
@@ -76,6 +77,17 @@ class HandleView {
                                     surface.flipBufferVertically = flipVertical
                                 }
                             }
+                        }
+                    }
+                    return true
+                }
+                "clearSurfaceFrame" -> {
+                    val aid = m.params?.get("aid")?.asInt
+                    val id = m.params?.get("id")?.asInt
+                    val activity = activities[aid]
+                    if (activity != null && id != null) {
+                        V0Shared.runOnUIThreadActivityStartedBlocking(activity) {
+                            it.findViewReimplemented<HardwareBitmapSurfaceView>(id)?.clearFrame()
                         }
                     }
                     return true

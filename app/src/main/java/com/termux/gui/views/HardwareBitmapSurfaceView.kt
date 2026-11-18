@@ -39,12 +39,22 @@ class HardwareBitmapSurfaceView(context: Context) : HardwareBufferSurfaceView(co
         }
     }
 
+    fun clearFrame() {
+        val frame = synchronized(frameLock) {
+            val current = pendingFrame
+            pendingFrame = null
+            renderHandler?.removeCallbacks(frameTask)
+            current
+        }
+        if (frame != null) synchronized(frame.lock) {}
+    }
+
     private fun presentLatestFrame() {
         if (detached) return
         val frame = synchronized(frameLock) { pendingFrame } ?: return
         synchronized(frame.lock) {
             synchronized(RENDER_LOCK) {
-                if (detached) return
+                if (detached || synchronized(frameLock) { pendingFrame !== frame }) return
                 val current = buffer
                 if (current == null || current.width != frame.bitmap.width
                     || current.height != frame.bitmap.height) {
