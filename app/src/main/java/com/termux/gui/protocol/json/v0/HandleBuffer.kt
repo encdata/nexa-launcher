@@ -108,15 +108,17 @@ class HandleBuffer {
                     val bid = m.params?.get("bid")?.asInt
                     val buffer = buffers[bid]
                     if (buffer != null) {
-                        buffers.remove(bid)
-                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
-                            SharedMemory.unmap(buffer.buff)
-                            buffer.shm?.close()
-                        } else {
-                            val fd = buffer.fd
-                            if (fd != null) {
-                                ConnectionHandler.unmap_ashmem(buffer.buff)
-                                ConnectionHandler.destroy_ashmem(fd)
+                        synchronized(buffer) {
+                            buffers.remove(bid)
+                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
+                                SharedMemory.unmap(buffer.buff)
+                                buffer.shm?.close()
+                            } else {
+                                val fd = buffer.fd
+                                if (fd != null) {
+                                    ConnectionHandler.unmap_ashmem(buffer.buff)
+                                    ConnectionHandler.destroy_ashmem(fd)
+                                }
                             }
                         }
                     }

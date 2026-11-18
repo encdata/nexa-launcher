@@ -141,15 +141,17 @@ class HandleBuffer(val buffers: MutableMap<Int, DataClasses.SharedBuffer>, val h
         try {
             val buffer = buffers[m.buffer]
             if (buffer != null) {
-                buffers.remove(m.buffer)
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
-                    SharedMemory.unmap(buffer.buff)
-                    buffer.shm?.close()
-                } else {
-                    val fd = buffer.fd
-                    if (fd != null) {
-                        ConnectionHandler.unmap_ashmem(buffer.buff)
-                        ConnectionHandler.destroy_ashmem(fd)
+                synchronized(buffer) {
+                    buffers.remove(m.buffer)
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
+                        SharedMemory.unmap(buffer.buff)
+                        buffer.shm?.close()
+                    } else {
+                        val fd = buffer.fd
+                        if (fd != null) {
+                            ConnectionHandler.unmap_ashmem(buffer.buff)
+                            ConnectionHandler.destroy_ashmem(fd)
+                        }
                     }
                 }
                 ret.success = true

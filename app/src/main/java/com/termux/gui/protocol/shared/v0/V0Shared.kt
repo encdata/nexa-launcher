@@ -100,15 +100,19 @@ abstract class V0Shared(protected val app: Context, private val nexaConnection: 
             }
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
                 for (b in buffers.values) {
-                    SharedMemory.unmap(b.buff)
-                    b.shm?.close()
+                    synchronized(b) {
+                        SharedMemory.unmap(b.buff)
+                        b.shm?.close()
+                    }
                 }
             } else {
                 for (b in buffers.values) {
-                    val fd = b.fd
-                    if (fd != null) {
-                        ConnectionHandler.unmap_ashmem(b.buff)
-                        ConnectionHandler.destroy_ashmem(fd)
+                    synchronized(b) {
+                        val fd = b.fd
+                        if (fd != null) {
+                            ConnectionHandler.unmap_ashmem(b.buff)
+                            ConnectionHandler.destroy_ashmem(fd)
+                        }
                     }
                 }
             }
