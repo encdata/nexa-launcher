@@ -7,6 +7,7 @@ import java.util.WeakHashMap
 
 class NexaWebView(context: Context) : WebView(context) {
     private var processingPaused: Boolean? = null
+    private var activityPaused = false
     internal var backgroundThrottlingEnabled = true
         private set
 
@@ -39,10 +40,16 @@ class NexaWebView(context: Context) : WebView(context) {
     }
 
     private fun updateProcessingState() {
-        val shouldPause = backgroundThrottlingEnabled && !isShown
+        val shouldPause = activityPaused || (backgroundThrottlingEnabled && !isShown)
         if (processingPaused == shouldPause) return
         if (shouldPause) super.onPause() else super.onResume()
         processingPaused = shouldPause
+    }
+
+    fun setActivityPaused(paused: Boolean) {
+        if (activityPaused == paused) return
+        activityPaused = paused
+        updateProcessingState()
     }
 
     fun setBackgroundThrottling(enabled: Boolean) {

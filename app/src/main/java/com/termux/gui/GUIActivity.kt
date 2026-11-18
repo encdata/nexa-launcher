@@ -232,7 +232,8 @@ open class GUIActivity : AppCompatActivity() {
 
     private fun setWebViewsPaused(v: View?, paused: Boolean) {
         if (v is WebView) {
-            if (paused) v.onPause() else v.onResume()
+            if (v is NexaWebView) v.setActivityPaused(paused)
+            else if (paused) v.onPause() else v.onResume()
             return
         }
         if (v is ViewGroup) {
