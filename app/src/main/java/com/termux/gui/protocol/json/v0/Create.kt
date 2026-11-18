@@ -752,7 +752,7 @@ class Create {
 
                                 override fun onRenderProcessGone(v: WebView) {
                                     if (electronBridge != null) ElectronBridge.remove(v)
-                                    a.usedIds.remove(v.id)
+                                    a.a?.usedIds?.remove(v.id)
                                     val map = HashMap<String, Any?>()
                                     map["aid"] = aid
                                     map["id"] = id
