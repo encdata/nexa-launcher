@@ -238,7 +238,9 @@ object ElectronBridge {
                 state.paused = !visible
             }
         }
-        if (visible) webView.onResume() else webView.onPause()
+        if (webView !is NexaWebView) {
+            if (visible) webView.onResume() else webView.onPause()
+        }
     }
 
     fun remove(webView: WebView) {
