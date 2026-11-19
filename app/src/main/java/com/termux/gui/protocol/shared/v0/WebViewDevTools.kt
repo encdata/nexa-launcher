@@ -128,6 +128,22 @@ object WebViewDevTools {
             remote.outputStream.write(
                 "${parts[0]} $targetPath ${parts[2]}\r\n".toByteArray(Charsets.US_ASCII)
             )
+            var headerBytes = 0
+            while (true) {
+                val header = readLine(input)
+                headerBytes += header.length + 2
+                if (headerBytes > 64 * 1024) {
+                    throw IllegalStateException("DevTools request headers are too large")
+                }
+                if (header.isEmpty()) {
+                    remote.outputStream.write("\r\n".toByteArray(Charsets.US_ASCII))
+                    break
+                }
+                // Chrome’s hosted frontend sends an Origin the Android WebView endpoint rejects.
+                if (!header.startsWith("Origin:", ignoreCase = true)) {
+                    remote.outputStream.write((header + "\r\n").toByteArray(Charsets.US_ASCII))
+                }
+            }
             remote.outputStream.flush()
             val toRemote = workers.submit {
                 input.copyTo(remote.outputStream)

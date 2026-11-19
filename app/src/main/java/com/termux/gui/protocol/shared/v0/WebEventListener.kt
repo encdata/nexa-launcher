@@ -15,6 +15,10 @@ interface WebEventListener {
     fun onReceivedError(url: String, description: String, code: Int, isMainFrame: Boolean?) {
         onReceivedError(url, description, code)
     }
+    fun onReceivedError(url: String, description: String, code: Int,
+                        isMainFrame: Boolean?, method: String?) {
+        onReceivedError(url, description, code, isMainFrame)
+    }
     fun onRenderProcessGone(v: WebView)
     fun onRenderProcessGone(v: WebView, crashed: Boolean) = onRenderProcessGone(v)
     

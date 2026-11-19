@@ -67,9 +67,9 @@ class GUIWebViewClient(
 
     @Suppress("Deprecation")
     override fun onReceivedError(view: WebView?, request: WebResourceRequest?, error: WebResourceError?) {
-        if (error != null && request != null && (!mainFrameErrorsOnly || request.isForMainFrame))
+        if (error != null && request != null)
             l.onReceivedError(request.url.toString(), error.description.toString(),
-                error.errorCode, request.isForMainFrame)
+                error.errorCode, request.isForMainFrame, request.method)
     }
 
     override fun onReceivedHttpError(view: WebView?, request: WebResourceRequest?, errorResponse: WebResourceResponse?) {

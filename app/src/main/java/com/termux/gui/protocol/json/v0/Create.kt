@@ -824,7 +824,8 @@ class Create {
                                 }
 
                                 private fun sendWebViewError(url: String, description: String,
-                                                             code: Int, isMainFrame: Boolean?) {
+                                                             code: Int, isMainFrame: Boolean?,
+                                                             method: String? = null) {
                                     if (electronBridge != null) {
                                         ElectronBridge.finishReloadIgnoringCache(v)
                                     }
@@ -841,7 +842,13 @@ class Create {
                                     }
                                     map["platformErrorCode"] = code
                                     if (isMainFrame != null) map["isMainFrame"] = isMainFrame
-                                    eventQueue.offer(ConnectionHandler.Event("webviewError", ConnectionHandler.gson.toJsonTree(map)))
+                                    if (method != null) map["method"] = method
+                                    val eventType = if (electronBridge != null && isMainFrame == false) {
+                                        "webviewRequestError"
+                                    } else {
+                                        "webviewError"
+                                    }
+                                    eventQueue.offer(ConnectionHandler.Event(eventType, ConnectionHandler.gson.toJsonTree(map)))
                                 }
 
                                 override fun onReceivedError(url: String, description: String, code: Int) {
@@ -851,6 +858,12 @@ class Create {
                                 override fun onReceivedError(url: String, description: String,
                                                              code: Int, isMainFrame: Boolean?) {
                                     sendWebViewError(url, description, code, isMainFrame)
+                                }
+
+                                override fun onReceivedError(url: String, description: String,
+                                                             code: Int, isMainFrame: Boolean?,
+                                                             method: String?) {
+                                    sendWebViewError(url, description, code, isMainFrame, method)
                                 }
 
                                 override fun onRenderProcessGone(v: WebView) {
