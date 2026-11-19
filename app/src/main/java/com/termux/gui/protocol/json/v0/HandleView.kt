@@ -1236,7 +1236,7 @@ class HandleView {
                     try {
                         Util.runOnUIThreadBlocking {
                             WebStorageCompat.deleteBrowsingData(
-                                profile.webStorage(),
+                                profile.getWebStorage(),
                                 Executor { task -> Thread(task, "nexa-storage-clear").start() },
                                 Runnable {
                                     Util.sendMessage(out, ConnectionHandler.gson.toJson(true))
@@ -1636,7 +1636,7 @@ class HandleView {
                         val a = activities[aid]
                         val uri = m.params?.get("uri")?.asString
                         if (a != null && id != null && uri != null) {
-                            val headerObject = m.params?.getAsJsonObject("headers")
+                            val headerObject = m.params?.get("headers")?.asJsonObject
                             val headers = linkedMapOf<String, String>()
                             if (headerObject != null) {
                                 for ((name, value) in headerObject.entrySet()) {

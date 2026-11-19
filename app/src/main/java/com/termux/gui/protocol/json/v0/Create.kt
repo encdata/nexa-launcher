@@ -24,6 +24,7 @@ import androidx.recyclerview.widget.RecyclerView
 import androidx.swiperefreshlayout.widget.SwipeRefreshLayout
 import androidx.webkit.WebViewCompat
 import androidx.webkit.WebViewFeature
+import androidx.webkit.ProfileStore
 import com.google.android.material.tabs.TabLayout
 import com.termux.gui.ConnectionHandler
 import com.termux.gui.R
@@ -940,12 +941,12 @@ class Create {
                                         .setNotificationVisibility(
                                             DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED
                                         )
-                                        .allowScanningByMediaScanner()
                                         .setAllowedOverMetered(true)
                                         .setAllowedOverRoaming(false)
                                         .setDestinationInExternalPublicDir(
                                             Environment.DIRECTORY_DOWNLOADS, fileName
                                         )
+                                    request.allowScanningByMediaScanner()
                                     if (!userAgent.isNullOrBlank()) {
                                         request.addRequestHeader("User-Agent", userAgent)
                                     }
