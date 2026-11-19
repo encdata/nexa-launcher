@@ -147,15 +147,19 @@ object ElectronBridge {
             normalizedOrigins
         ) { view, message: WebMessageCompat, sourceOrigin, isMainFrame, replyProxy ->
             val origin = normalizeOrigin(sourceOrigin)
-            if (!isMainFrame || origin == null || origin !in normalizedOrigins) {
+            if (origin == null || origin !in normalizedOrigins) {
                 return@addWebMessageListener
             }
 
-            synchronized(states) {
-                states[view]?.replyProxy = replyProxy
+            if (isMainFrame) {
+                synchronized(states) {
+                    states[view]?.replyProxy = replyProxy
+                }
             }
             if (message.data == "{\"kind\":\"ready\"}") {
-                enqueueBridgeMessage(aid, viewId, origin, message.data, eventQueue)
+                if (isMainFrame) {
+                    enqueueBridgeMessage(aid, viewId, origin, message.data, eventQueue)
+                }
                 return@addWebMessageListener
             }
             if (state.ipcExecutor != null) {
