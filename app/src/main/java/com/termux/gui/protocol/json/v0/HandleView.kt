@@ -1136,6 +1136,28 @@ class HandleView {
                     }
                     return true
                 }
+                "clearWebViewCache" -> {
+                    val aid = m.params?.get("aid")?.asInt
+                    val id = m.params?.get("id")?.asInt
+                    val a = activities[aid]
+                    val o = overlays[aid]
+                    if (id != null) {
+                        fun clear(view: View?) {
+                            if (view is WebView) view.clearCache(false)
+                        }
+                        if (a != null) {
+                            V0Shared.runOnUIThreadActivityStarted(a) {
+                                clear(it.findViewReimplemented<View>(id))
+                            }
+                        }
+                        if (o != null) {
+                            Util.runOnUIThreadBlocking {
+                                clear(o.root.findViewReimplemented<View>(id))
+                            }
+                        }
+                    }
+                    return true
+                }
                 "setVisibility" -> {
                     if (m.params != null) {
                         val aid = m.params?.get("aid")?.asInt

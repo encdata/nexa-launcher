@@ -4,6 +4,7 @@ import android.net.Uri
 import android.os.Handler
 import android.os.Looper
 import android.webkit.WebView
+import androidx.webkit.JavaScriptExecutionWorld
 import androidx.webkit.JavaScriptReplyProxy
 import androidx.webkit.ScriptHandler
 import androidx.webkit.WebMessageCompat
@@ -25,9 +26,10 @@ import java.util.concurrent.TimeUnit
 
 object ElectronBridge {
     private const val MAX_PRELOAD_BYTES = 8 * 1024 * 1024
+    private const val MAX_CACHED_PRELOADS = 1
     private const val MAX_IPC_MESSAGE_CHARS = 1024 * 1024
     private const val MAX_IPC_MESSAGE_BYTES = 1024 * 1024
-    private val ipcKindPattern = Regex("^\\s*\\{\\s*\\\"kind\\\"\\s*:\\s*\\\"(send|invoke)\\\"(?:\\s*,|\\s*\\})")
+    private val ipcKindPattern = Regex("^\\s*\\{\\s*\\\"kind\\\"\\s*:\\s*\\\"(send|invoke|batch)\\\"(?:\\s*,|\\s*\\})")
     private val invokeIdPattern = Regex("^\\s*\\{\\s*\\\"kind\\\"\\s*:\\s*\\\"invoke\\\"\\s*,\\s*\\\"id\\\"\\s*:\\s*(\\d+)")
 
     private data class State(
@@ -49,6 +51,8 @@ object ElectronBridge {
     )
 
     private val states = WeakHashMap<WebView, State>()
+    private data class CachedPreload(val etag: String, val source: String)
+    private val preloadCache = LinkedHashMap<String, CachedPreload>(4, 0.75f, true)
     private val mainHandler = Handler(Looper.getMainLooper())
 
     fun fetchPreload(preloadUrl: String, token: String): String {
@@ -65,8 +69,18 @@ object ElectronBridge {
             setRequestProperty("X-Nexa-Token", token)
         }
         try {
-            if (connection.responseCode != 200) {
-                throw IllegalStateException("electron preload fetch failed (${connection.responseCode})")
+            val cacheKey = "${url.scheme}://${url.host}:${url.port}:${token.hashCode()}"
+            val cached = synchronized(preloadCache) {
+                preloadCache[cacheKey]
+            }
+            if (cached != null) connection.setRequestProperty("If-None-Match", cached.etag)
+            val status = connection.responseCode
+            if (status == HttpURLConnection.HTTP_NOT_MODIFIED) {
+                return cached?.source
+                    ?: throw IllegalStateException("electron preload cache entry expired")
+            }
+            if (status != HttpURLConnection.HTTP_OK) {
+                throw IllegalStateException("electron preload fetch failed ($status)")
             }
             val contentLength = connection.contentLength
             if (contentLength > MAX_PRELOAD_BYTES) {
@@ -75,7 +89,9 @@ object ElectronBridge {
             if (contentLength >= 0) {
                 val bytes = ByteArray(contentLength)
                 DataInputStream(connection.inputStream).use { it.readFully(bytes) }
-                return String(bytes, Charsets.UTF_8)
+                val source = String(bytes, Charsets.UTF_8)
+                cachePreload(cacheKey, connection.getHeaderField("ETag"), source)
+                return source
             }
             val output = ByteArrayOutputStream()
             connection.inputStream.use { input ->
@@ -89,9 +105,21 @@ object ElectronBridge {
                     output.write(buffer, 0, count)
                 }
             }
-            return output.toString(Charsets.UTF_8.name())
+            val source = output.toString(Charsets.UTF_8.name())
+            cachePreload(cacheKey, connection.getHeaderField("ETag"), source)
+            return source
         } finally {
             connection.disconnect()
+        }
+    }
+
+    private fun cachePreload(key: String, etag: String?, source: String) {
+        if (etag.isNullOrBlank()) return
+        synchronized(preloadCache) {
+            preloadCache[key] = CachedPreload(etag, source)
+            while (preloadCache.size > MAX_CACHED_PRELOADS) {
+                preloadCache.remove(preloadCache.keys.first())
+            }
         }
     }
 
@@ -141,65 +169,79 @@ object ElectronBridge {
             states[webView] = state
         }
         (webView as? NexaWebView)?.setBackgroundThrottling(backgroundThrottling)
-        WebViewCompat.addWebMessageListener(
-            webView,
-            "nexaElectronNative",
-            normalizedOrigins
-        ) { view, message: WebMessageCompat, sourceOrigin, isMainFrame, replyProxy ->
-            val origin = normalizeOrigin(sourceOrigin)
-            if (origin == null || origin !in normalizedOrigins) {
-                return@addWebMessageListener
-            }
+        val messageListener = object : WebViewCompat.WebMessageListener {
+            override fun onPostMessage(
+                view: WebView,
+                message: WebMessageCompat,
+                sourceOrigin: Uri,
+                isMainFrame: Boolean,
+                replyProxy: JavaScriptReplyProxy
+            ) {
+                val origin = normalizeOrigin(sourceOrigin)
+                if (origin == null || origin !in normalizedOrigins) {
+                    return
+                }
 
-            if (isMainFrame) {
-                synchronized(states) {
-                    states[view]?.replyProxy = replyProxy
-                }
-            }
-            if (message.data == "{\"kind\":\"ready\"}") {
                 if (isMainFrame) {
-                    enqueueBridgeMessage(aid, viewId, origin, message.data, eventQueue)
-                }
-                return@addWebMessageListener
-            }
-            if (state.ipcExecutor != null) {
-                if (message.data.length > MAX_IPC_MESSAGE_CHARS) {
-                    rejectIpc(state, replyProxy, message.data,
-                        "Electron IPC message exceeds 1 MiB")
-                    return@addWebMessageListener
-                }
-                val data = message.data
-                try {
-                    state.ipcExecutor.execute {
-                        val kind = ipcKindPattern.find(data)?.groupValues?.get(1)
-                        if (kind != null) {
-                            val requestId = if (kind == "invoke") {
-                                invokeIdPattern.find(data)
-                                    ?.groupValues?.get(1)?.toIntOrNull() ?: -1
-                            } else {
-                                -1
-                            }
-                            dispatchIpc(state, replyProxy, data, kind,
-                                requestId)
-                        } else {
-                            enqueueBridgeMessage(aid, viewId, origin, data, eventQueue)
-                        }
+                    synchronized(states) {
+                        states[view]?.replyProxy = replyProxy
                     }
-                } catch (_: Exception) {
-                    val message = if (state.closed) "Electron IPC transport is closed"
-                        else "Electron IPC queue is full"
-                    rejectIpc(state, replyProxy, data, message)
                 }
-                return@addWebMessageListener
+                if (message.data == "{\"kind\":\"ready\"}") {
+                    if (isMainFrame) {
+                        enqueueBridgeMessage(aid, viewId, origin, message.data, eventQueue)
+                    }
+                    return
+                }
+                if (state.ipcExecutor != null) {
+                    if (message.data.length > MAX_IPC_MESSAGE_CHARS) {
+                        rejectIpc(state, replyProxy, message.data,
+                            "Electron IPC message exceeds 1 MiB")
+                        return
+                    }
+                    val data = message.data
+                    try {
+                        state.ipcExecutor.execute {
+                            val kind = ipcKindPattern.find(data)?.groupValues?.get(1)
+                            if (kind != null) {
+                                val requestId = if (kind == "invoke") {
+                                    invokeIdPattern.find(data)
+                                        ?.groupValues?.get(1)?.toIntOrNull() ?: -1
+                                } else {
+                                    -1
+                                }
+                                dispatchIpc(state, replyProxy, data, kind,
+                                    requestId)
+                            } else {
+                                enqueueBridgeMessage(aid, viewId, origin, data, eventQueue)
+                            }
+                        }
+                    } catch (_: Exception) {
+                        val message = if (state.closed) "Electron IPC transport is closed"
+                            else "Electron IPC queue is full"
+                        rejectIpc(state, replyProxy, data, message)
+                    }
+                    return
+                }
+                enqueueBridgeMessage(aid, viewId, origin, message.data, eventQueue)
             }
-            enqueueBridgeMessage(aid, viewId, origin, message.data, eventQueue)
         }
-        state.scriptHandler = WebViewCompat.addDocumentStartJavaScript(
-            webView,
-            preload + "\nif (window.nexaElectronNative) " +
-                "window.nexaElectronNative.postMessage(JSON.stringify({kind: \"ready\"}));",
-            normalizedOrigins
-        )
+        val script = preload + "\nif (window.nexaElectronNative) " +
+            "window.nexaElectronNative.postMessage(JSON.stringify({kind: \"ready\"}));"
+        if (WebViewFeature.isFeatureSupported(WebViewFeature.JS_INJECTION_IN_FRAME_AND_WORLD)) {
+            val pageWorld = WebViewCompat.getExecutionWorld(
+                webView, JavaScriptExecutionWorld.PAGE_WORLD_NAME)
+            WebViewCompat.addWebMessageListener(
+                webView, "nexaElectronNative", normalizedOrigins, pageWorld, messageListener)
+            state.scriptHandler = WebViewCompat.addJavaScriptOnEvent(
+                webView, script, WebViewCompat.INJECTION_EVENT_DOCUMENT_START,
+                normalizedOrigins, pageWorld)
+        } else {
+            WebViewCompat.addWebMessageListener(
+                webView, "nexaElectronNative", normalizedOrigins, messageListener)
+            state.scriptHandler = WebViewCompat.addDocumentStartJavaScript(
+                webView, script, normalizedOrigins)
+        }
         return null
     }
 
