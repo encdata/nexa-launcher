@@ -18,22 +18,24 @@ class GUIWebViewClient(
     @Suppress("Deprecation")
     override fun shouldOverrideUrlLoading(view: WebView?, url: String?): Boolean {
         if (url != null)
-            l.onNavigation(url)
+            l.onNavigation(url, null)
         return ! allowNavigation
     }
 
     override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean {
         if (request != null)
-            l.onNavigation(request.url.toString())
+            l.onNavigation(request.url.toString(), request.isForMainFrame)
         return ! allowNavigation
     }
 
     override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
         super.onPageStarted(view, url, favicon)
+        if (url != null) l.onPageStarted(url)
     }
 
     override fun onPageFinished(view: WebView?, url: String?) {
         super.onPageFinished(view, url)
+        if (url != null) l.onPageFinished(url)
     }
 
     override fun onLoadResource(view: WebView?, url: String?) {
@@ -42,6 +44,7 @@ class GUIWebViewClient(
 
     override fun onPageCommitVisible(view: WebView?, url: String?) {
         super.onPageCommitVisible(view, url)
+        if (url != null) l.onPageCommitVisible(url)
     }
 
     
@@ -51,6 +54,7 @@ class GUIWebViewClient(
     }
 
     override fun shouldInterceptRequest(view: WebView?, request: WebResourceRequest?): WebResourceResponse? {
+        ElectronBridge.interceptWebRequest(view, request)?.let { return it }
         return super.shouldInterceptRequest(view, request)
     }
 
@@ -64,7 +68,8 @@ class GUIWebViewClient(
     @Suppress("Deprecation")
     override fun onReceivedError(view: WebView?, request: WebResourceRequest?, error: WebResourceError?) {
         if (error != null && request != null && (!mainFrameErrorsOnly || request.isForMainFrame))
-            onReceivedError(view, error.errorCode, error.description.toString(), request.url.toString())
+            l.onReceivedError(request.url.toString(), error.description.toString(),
+                error.errorCode, request.isForMainFrame)
     }
 
     override fun onReceivedHttpError(view: WebView?, request: WebResourceRequest?, errorResponse: WebResourceResponse?) {
@@ -111,7 +116,7 @@ class GUIWebViewClient(
     override fun onRenderProcessGone(view: WebView?, detail: RenderProcessGoneDetail?): Boolean {
         if (view != null) {
             (view.parent as? ViewGroup)?.removeView(view)
-            l.onRenderProcessGone(view)
+            l.onRenderProcessGone(view, detail?.didCrash() == true)
             view.destroy()
         }
         return true

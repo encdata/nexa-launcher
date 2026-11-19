@@ -3,6 +3,7 @@ package com.termux.gui.protocol.shared.v0
 import android.net.Uri
 import android.os.Handler
 import android.os.Looper
+import android.webkit.WebResourceResponse
 import android.webkit.WebView
 import androidx.webkit.JavaScriptExecutionWorld
 import androidx.webkit.JavaScriptReplyProxy
@@ -13,6 +14,7 @@ import androidx.webkit.WebViewFeature
 import com.termux.gui.ConnectionHandler
 import org.json.JSONObject
 import java.io.DataInputStream
+import java.io.ByteArrayInputStream
 import java.net.HttpURLConnection
 import java.net.URL
 import java.io.ByteArrayOutputStream
@@ -23,6 +25,7 @@ import java.util.concurrent.ExecutorService
 import java.util.concurrent.LinkedBlockingQueue
 import java.util.concurrent.ThreadPoolExecutor
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicInteger
 
 object ElectronBridge {
     private const val MAX_PRELOAD_BYTES = 8 * 1024 * 1024
@@ -39,6 +42,8 @@ object ElectronBridge {
         val ipcEndpoint: String?,
         val ipcToken: String?,
         val windowId: Int?,
+        val profileName: String?,
+        @Volatile var webRequestEnabled: Boolean,
         val ipcExecutor: ExecutorService?,
         var activeConnection: HttpURLConnection? = null,
         @Volatile
@@ -51,9 +56,11 @@ object ElectronBridge {
     )
 
     private val states = WeakHashMap<WebView, State>()
+    private val reloadCacheModes = WeakHashMap<WebView, Int>()
     private data class CachedPreload(val etag: String, val source: String)
     private val preloadCache = LinkedHashMap<String, CachedPreload>(4, 0.75f, true)
     private val mainHandler = Handler(Looper.getMainLooper())
+    private val nextWebRequestId = AtomicInteger()
 
     fun fetchPreload(preloadUrl: String, token: String): String {
         val url = Uri.parse(preloadUrl)
@@ -133,6 +140,8 @@ object ElectronBridge {
         ipcEndpoint: String?,
         ipcToken: String?,
         windowId: Int?,
+        profileName: String?,
+        webRequestEnabled: Boolean,
         backgroundThrottling: Boolean = true
     ): String? {
         val normalizedOrigins = origins.mapNotNull { normalizeOrigin(Uri.parse(it)) }.toSet()
@@ -159,6 +168,7 @@ object ElectronBridge {
 
         val state = State(
             aid, viewId, eventQueue, ipcEndpoint, ipcToken, windowId,
+            profileName, webRequestEnabled,
             if (ipcEndpoint == null) null else ThreadPoolExecutor(
                 0, 1, 30L, TimeUnit.SECONDS, ArrayBlockingQueue(8), { task ->
                     Thread(task, "nexa-electron-ipc-$viewId").apply { isDaemon = true }
@@ -190,6 +200,38 @@ object ElectronBridge {
                 if (message.data == "{\"kind\":\"ready\"}") {
                     if (isMainFrame) {
                         enqueueBridgeMessage(aid, viewId, origin, message.data, eventQueue)
+                    }
+                    return
+                }
+                val payload = try {
+                    JSONObject(message.data)
+                } catch (_: Exception) {
+                    null
+                }
+                if (payload?.optString("kind") == "nexa-in-page-navigation") {
+                    val url = payload.optString("url")
+                    if (isMainFrame && normalizeOrigin(Uri.parse(url)) == origin) {
+                        val history = view.copyBackForwardList()
+                        val entries = (0 until history.size).map { index ->
+                            val item = history.getItemAtIndex(index)
+                            mapOf("url" to item.url, "title" to item.title)
+                        }
+                        val currentEntry = entries.getOrNull(history.currentIndex)
+                        val navigationHistory = if (currentEntry?.get("url") == url) {
+                            mapOf("entries" to entries, "index" to history.currentIndex)
+                        } else {
+                            null
+                        }
+                        val value = mutableMapOf<String, Any?>(
+                            "aid" to aid,
+                            "id" to viewId,
+                            "url" to url
+                        )
+                        if (navigationHistory != null) value["navigationHistory"] = navigationHistory
+                        eventQueue.offer(ConnectionHandler.Event(
+                            "webviewInPageNavigation",
+                            ConnectionHandler.gson.toJsonTree(value)
+                        ))
                     }
                     return
                 }
@@ -226,7 +268,18 @@ object ElectronBridge {
                 enqueueBridgeMessage(aid, viewId, origin, message.data, eventQueue)
             }
         }
-        val script = preload + "\nif (window.nexaElectronNative) " +
+        val script = preload + "\n" +
+            "(() => { if (window !== window.top) return; " +
+            "let queued = false; " +
+            "const send = () => window.nexaElectronNative?.postMessage(JSON.stringify(" +
+            "{kind: 'nexa-in-page-navigation', url: location.href})); " +
+            "const report = () => { if (queued) return; queued = true; " +
+            "setTimeout(() => { queued = false; send(); }, 0); }; " +
+            "for (const name of ['pushState', 'replaceState']) { " +
+            "const original = history[name]; history[name] = function(...args) { " +
+            "const result = Reflect.apply(original, this, args); send(); return result; }; } " +
+            "addEventListener('popstate', report); addEventListener('hashchange', report); " +
+            "})();\nif (window.nexaElectronNative) " +
             "window.nexaElectronNative.postMessage(JSON.stringify({kind: \"ready\"}));"
         if (WebViewFeature.isFeatureSupported(WebViewFeature.JS_INJECTION_IN_FRAME_AND_WORLD)) {
             val pageWorld = WebViewCompat.getExecutionWorld(
@@ -248,6 +301,110 @@ object ElectronBridge {
     fun reply(webView: WebView, message: String) {
         val proxy = synchronized(states) { states[webView]?.replyProxy }
         proxy?.postMessage(message)
+    }
+
+    fun interceptWebRequest(webView: WebView?, request: android.webkit.WebResourceRequest?): WebResourceResponse? {
+        if (webView == null || request == null) return null
+        val state = synchronized(states) { states[webView] } ?: return null
+        if (!state.webRequestEnabled) return null
+        val endpoint = state.ipcEndpoint ?: return null
+        val token = state.ipcToken ?: return null
+        val windowId = state.windowId ?: return null
+        val requestUri = request.url
+        val url = requestUri.toString()
+        val requestId = nextWebRequestId.incrementAndGet()
+        val referrer = request.requestHeaders.entries
+            .firstOrNull { it.key.equals("Referer", ignoreCase = true) }?.value
+        val details = JSONObject()
+            .put("id", requestId)
+            .put("url", url)
+            .put("method", request.method)
+            .put("webContentsId", windowId)
+            .put("timestamp", System.currentTimeMillis() / 1000.0)
+            .put("referrer", referrer ?: "")
+        if (request.isForMainFrame) details.put("resourceType", "mainFrame")
+        if (!referrer.isNullOrBlank()) {
+            val referrerUri = Uri.parse(referrer)
+            if (referrerUri.scheme != null && referrerUri.host != null) {
+                val port = referrerUri.port
+                details.put("initiatorOrigin", buildString {
+                    append(referrerUri.scheme).append("://").append(referrerUri.host)
+                    if (port > 0 && !((referrerUri.scheme == "http" && port == 80) ||
+                            (referrerUri.scheme == "https" && port == 443))) {
+                        append(':').append(port)
+                    }
+                })
+            }
+        }
+        val message = JSONObject()
+            .put("kind", "invoke")
+            .put("id", requestId)
+            .put("channel", "nexa:electron:webRequest")
+            .put("contentsId", windowId)
+            .put("args", org.json.JSONArray().put(details))
+        val connection = try {
+            (URL(endpoint).openConnection() as HttpURLConnection).apply {
+                requestMethod = "POST"
+                connectTimeout = 5000
+                readTimeout = 35000
+                instanceFollowRedirects = false
+                doOutput = true
+                setRequestProperty("Content-Type", "application/json; charset=utf-8")
+                setRequestProperty("X-Nexa-Token", token)
+                setRequestProperty("X-Nexa-Window-Id", windowId.toString())
+            }
+        } catch (error: Exception) {
+            reportError(state, "Electron webRequest transport failed: ${error.message}")
+            return null
+        }
+        try {
+            val body = message.toString().toByteArray(Charsets.UTF_8)
+            connection.setFixedLengthStreamingMode(body.size)
+            connection.outputStream.use { it.write(body) }
+            val status = connection.responseCode
+            val stream = if (status in 200..299) connection.inputStream else connection.errorStream
+            val result = stream?.bufferedReader(Charsets.UTF_8)?.use { it.readText() }
+            val envelope = result?.let { JSONObject(it) }
+            val error = envelope?.optString("error")?.takeIf { it.isNotBlank() }
+            if (status !in 200..299 || error != null) {
+                reportError(state, "Electron onBeforeRequest failed: ${error ?: status}")
+                return WebResourceResponse(
+                    "text/plain", "UTF-8", 500, "Electron request hook failed",
+                    emptyMap(), ByteArrayInputStream(ByteArray(0)))
+            }
+            val decision = envelope?.optJSONObject("value") ?: return null
+            if (decision.optBoolean("cancel")) {
+                return WebResourceResponse(
+                    "text/plain", "UTF-8", 403, "Blocked by Electron",
+                    emptyMap(), ByteArrayInputStream(ByteArray(0)))
+            }
+            val redirect = decision.optString("redirectURL").takeIf { it.isNotBlank() }
+            if (redirect != null) {
+                val redirectUri = Uri.parse(redirect)
+                if (redirectUri.scheme !in setOf("http", "https") || redirectUri.host.isNullOrBlank()) {
+                    reportError(state, "Electron webRequest returned an unsupported redirect URL")
+                    return WebResourceResponse(
+                        "text/plain", "UTF-8", 500, "Invalid Electron redirect",
+                        emptyMap(), ByteArrayInputStream(ByteArray(0)))
+                }
+                return WebResourceResponse(
+                    "text/plain", "UTF-8", 307, "Temporary Redirect",
+                    mapOf("Location" to redirect), ByteArrayInputStream(ByteArray(0)))
+            }
+            return null
+        } catch (error: Exception) {
+            reportError(state, "Electron webRequest transport failed: ${error.message}")
+            return null
+        } finally {
+            connection.disconnect()
+        }
+    }
+
+    fun setWebRequestEnabled(profileName: String, enabled: Boolean) {
+        synchronized(states) {
+            states.values.filter { it.profileName == profileName }
+                .forEach { it.webRequestEnabled = enabled }
+        }
     }
 
     fun sampleConsoleError(webView: WebView, message: String, source: String, line: Int): Int? {
@@ -297,7 +454,23 @@ object ElectronBridge {
         (webView as? NexaWebView)?.setBackgroundThrottling(enabled)
     }
 
+    fun reloadIgnoringCache(webView: WebView) {
+        synchronized(reloadCacheModes) {
+            if (!reloadCacheModes.containsKey(webView)) {
+                reloadCacheModes[webView] = webView.settings.cacheMode
+            }
+        }
+        webView.settings.cacheMode = android.webkit.WebSettings.LOAD_NO_CACHE
+        webView.reload()
+    }
+
+    fun finishReloadIgnoringCache(webView: WebView) {
+        val cacheMode = synchronized(reloadCacheModes) { reloadCacheModes.remove(webView) }
+        if (cacheMode != null) webView.settings.cacheMode = cacheMode
+    }
+
     fun remove(webView: WebView) {
+        finishReloadIgnoringCache(webView)
         val state = synchronized(states) { states.remove(webView) } ?: return
         synchronized(state) {
             state.closed = true

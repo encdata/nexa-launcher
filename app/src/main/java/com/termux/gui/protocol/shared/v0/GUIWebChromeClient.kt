@@ -6,6 +6,10 @@ import android.webkit.*
 
 @Suppress("OVERRIDE_DEPRECATION")
 class GUIWebChromeClient(val l: WebEventListener) : WebChromeClient() {
+    override fun onReceivedTitle(view: WebView?, title: String?) {
+        if (title != null) l.onReceivedTitle(title)
+    }
+
     override fun onProgressChanged(view: WebView?, newProgress: Int) {
         l.onProgressChanged(newProgress)
     }

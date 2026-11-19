@@ -24,11 +24,16 @@ import android.text.style.StyleSpan
 import android.text.style.StrikethroughSpan
 import android.text.style.UnderlineSpan
 import android.webkit.WebView
+import android.webkit.WebSettings
+import android.webkit.CookieManager
 import android.widget.*
 import androidx.core.view.setPadding
 import androidx.core.widget.NestedScrollView
 import androidx.recyclerview.widget.RecyclerView
 import androidx.swiperefreshlayout.widget.SwipeRefreshLayout
+import androidx.webkit.ProfileStore
+import androidx.webkit.WebStorageCompat
+import androidx.webkit.WebViewFeature
 import com.google.android.material.tabs.TabLayout
 import com.google.gson.JsonElement
 import com.google.gson.JsonNull
@@ -38,6 +43,7 @@ import com.termux.gui.protocol.shared.v0.BitmapCache
 import com.termux.gui.protocol.shared.v0.DataClasses
 import com.termux.gui.protocol.shared.v0.ElectronBridge
 import com.termux.gui.protocol.shared.v0.GUIWebViewClient
+import com.termux.gui.protocol.shared.v0.WebViewDevTools
 import com.termux.gui.protocol.shared.v0.RecyclerListAdapter
 import com.termux.gui.protocol.shared.v0.V0Shared
 import com.termux.gui.protocol.shared.v0.ViewAnimation
@@ -47,6 +53,7 @@ import com.termux.gui.views.HardwareBufferSurfaceView
 import java.io.DataOutputStream
 import java.util.*
 import java.util.concurrent.LinkedBlockingQueue
+import java.util.concurrent.Executor
 
 
 class HandleView {
@@ -57,12 +64,63 @@ class HandleView {
     }
 
     companion object {
+        private fun desktopUserAgent(userAgent: String): String {
+            return Regex("\\(Linux; Android [^)]*\\)")
+                .replace(userAgent, "(Windows NT 10.0; Win64; x64)")
+                .replace(" Mobile ", " ")
+        }
+
         @SuppressLint("WebViewApiAvailability")
         fun handleView(m: ConnectionHandler.Message, activities: MutableMap<Int, DataClasses.ActivityState>, overlays: MutableMap<Int, DataClasses.Overlay>,
                        rand: Random, out: DataOutputStream, app: Context,
                        eventQueue: LinkedBlockingQueue<ConnectionHandler.Event>) : Boolean {
             operator fun Regex.contains(text: String?): Boolean = if (text == null) false else this.matches(text)
             when (m.method) {
+                "getWebViewDevToolsUrl" -> {
+                    val aid = m.params?.get("aid")?.asInt
+                    val id = m.params?.get("id")?.asInt
+                    val activity = activities[aid]
+                    var pageUrl: String? = null
+                    if (activity != null && id != null) {
+                        V0Shared.runOnUIThreadActivityStartedBlocking(activity) { startedActivity ->
+                            startedActivity.findViewReimplemented<WebView>(id)?.let { webView ->
+                                WebViewDevTools.enable(id)
+                                pageUrl = webView.url
+                            }
+                        }
+                    }
+                    val frontendUrl = try {
+                        pageUrl?.let { WebViewDevTools.frontendUrl(id!!, it) }
+                    } catch (error: Exception) {
+                        if (activity != null && id != null) {
+                            V0Shared.runOnUIThreadActivityStartedBlocking(activity) {
+                                WebViewDevTools.release(id)
+                            }
+                        }
+                        throw error
+                    }
+                    Util.sendMessage(out, ConnectionHandler.gson.toJson(frontendUrl))
+                    return true
+                }
+                "getDefaultWebViewUserAgent" -> {
+                    var userAgent = WebSettings.getDefaultUserAgent(app)
+                    if (m.params?.get("desktopMode")?.asBoolean == true) {
+                        userAgent = desktopUserAgent(userAgent)
+                    }
+                    Util.sendMessage(out, ConnectionHandler.gson.toJson(userAgent))
+                    return true
+                }
+                "closeWebViewDevTools" -> {
+                    val aid = m.params?.get("aid")?.asInt
+                    val id = m.params?.get("id")?.asInt
+                    val activity = activities[aid]
+                    if (activity != null && id != null) {
+                        V0Shared.runOnUIThreadActivityStartedBlocking(activity) {
+                            WebViewDevTools.release(id)
+                        }
+                    }
+                    return true
+                }
                 "setSurfaceFrameTransform" -> {
                     val aid = m.params?.get("aid")?.asInt
                     val id = m.params?.get("id")?.asInt
@@ -1141,18 +1199,232 @@ class HandleView {
                     val id = m.params?.get("id")?.asInt
                     val a = activities[aid]
                     val o = overlays[aid]
+                    var cleared = false
                     if (id != null) {
                         fun clear(view: View?) {
-                            if (view is WebView) view.clearCache(false)
+                            if (view is WebView) {
+                                view.clearCache(true)
+                                cleared = true
+                            }
                         }
                         if (a != null) {
-                            V0Shared.runOnUIThreadActivityStarted(a) {
+                            V0Shared.runOnUIThreadActivityStartedBlocking(a) {
                                 clear(it.findViewReimplemented<View>(id))
                             }
                         }
                         if (o != null) {
                             Util.runOnUIThreadBlocking {
                                 clear(o.root.findViewReimplemented<View>(id))
+                            }
+                        }
+                    }
+                    Util.sendMessage(out, ConnectionHandler.gson.toJson(cleared))
+                    return true
+                }
+                "clearElectronStorage" -> {
+                    val profileName = m.params?.get("profileName")?.asString
+                    val canClear = profileName != null &&
+                        WebViewFeature.isFeatureSupported(WebViewFeature.MULTI_PROFILE) &&
+                        WebViewFeature.isFeatureSupported(WebViewFeature.DELETE_BROWSING_DATA)
+                    val profile = if (canClear) {
+                        ProfileStore.getInstance().getProfile(profileName!!)
+                    } else null
+                    if (profile == null) {
+                        Util.sendMessage(out, ConnectionHandler.gson.toJson(false))
+                        return true
+                    }
+                    try {
+                        Util.runOnUIThreadBlocking {
+                            WebStorageCompat.deleteBrowsingData(
+                                profile.webStorage(),
+                                Executor { task -> Thread(task, "nexa-storage-clear").start() },
+                                Runnable {
+                                    Util.sendMessage(out, ConnectionHandler.gson.toJson(true))
+                                }
+                            )
+                        }
+                    } catch (_: Exception) {
+                        Util.sendMessage(out, ConnectionHandler.gson.toJson(false))
+                    }
+                    return true
+                }
+                "deleteElectronProfile" -> {
+                    val profileName = m.params?.get("profileName")?.asString
+                    var deleted = false
+                    if (profileName != null && profileName.matches(
+                            Regex("nexa_[a-f0-9]{32}_[a-f0-9]{16}")) &&
+                        WebViewFeature.isFeatureSupported(WebViewFeature.MULTI_PROFILE)) {
+                        try {
+                            Util.runOnUIThreadBlocking {
+                                deleted = ProfileStore.getInstance().deleteProfile(profileName)
+                            }
+                        } catch (_: Exception) {
+                            deleted = false
+                        }
+                    }
+                    Util.sendMessage(out, ConnectionHandler.gson.toJson(deleted))
+                    return true
+                }
+                "setElectronWebRequestEnabled" -> {
+                    val profileName = m.params?.get("profileName")?.asString
+                    val enabled = m.params?.get("enabled")?.asBoolean
+                    if (profileName != null && enabled != null && profileName.matches(
+                            Regex("nexa_[a-f0-9]{32}(?:_[a-f0-9]{16})?"))) {
+                        ElectronBridge.setWebRequestEnabled(profileName, enabled)
+                    }
+                    return true
+                }
+                "electronCookies" -> {
+                    val profileName = m.params?.get("profileName")?.asString
+                    val canUseProfiles = profileName != null &&
+                        WebViewFeature.isFeatureSupported(WebViewFeature.MULTI_PROFILE)
+                    val profile = if (canUseProfiles) {
+                        ProfileStore.getInstance().getProfile(profileName!!)
+                    } else null
+                    if (profile == null) {
+                        Util.sendMessage(out, ConnectionHandler.gson.toJson(
+                            mapOf("error" to "Android WebView profile is unavailable")))
+                        return true
+                    }
+                    val cookies = profile.cookieManager
+                    val action = m.params?.get("action")?.asString
+                    val url = m.params?.get("url")?.asString
+                    val uri = url?.let { Uri.parse(it) }
+                    if (action !in setOf("get", "set", "remove") || url.isNullOrBlank() ||
+                        uri == null || uri.host == null ||
+                        uri.scheme !in setOf("http", "https") || uri.userInfo != null) {
+                        Util.sendMessage(out, ConnectionHandler.gson.toJson(
+                            mapOf("error" to "invalid Electron cookie operation")))
+                        return true
+                    }
+                    when (action) {
+                        "get" -> {
+                            val wantedName = m.params?.get("name")?.asString
+                            val result = (cookies.getCookie(url!!) ?: "")
+                                .split(';')
+                                .mapNotNull { part ->
+                                    val split = part.indexOf('=')
+                                    if (split <= 0) return@mapNotNull null
+                                    val name = part.substring(0, split).trim()
+                                    val value = part.substring(split + 1).trim()
+                                    if (wantedName != null && wantedName != name) null
+                                    else mapOf("name" to name, "value" to value)
+                                }
+                            Util.sendMessage(out, ConnectionHandler.gson.toJson(result))
+                        }
+                        "set" -> {
+                            val details = m.params?.get("details")
+                                ?.takeIf { it.isJsonObject }?.asJsonObject
+                            val name = details?.get("name")?.takeIf { it.isJsonPrimitive }
+                                ?.asString
+                            val value = details?.get("value")?.takeIf { it.isJsonPrimitive }
+                                ?.asString
+                            if (name.isNullOrEmpty() || value == null ||
+                                name.any { it <= ' ' || it == ';' || it == '=' || it == ',' } ||
+                                value.any { it < ' ' || it == '\u007f' || it == ';' }) {
+                                Util.sendMessage(out, ConnectionHandler.gson.toJson(
+                                    mapOf("error" to "invalid Electron cookie name or value")))
+                                return true
+                            }
+                            val cookie = StringBuilder("$name=$value")
+                            val domain = details?.get("domain")?.takeIf { it.isJsonPrimitive }
+                                ?.asString
+                            if (!domain.isNullOrBlank()) {
+                                if (!domain.matches(Regex("\\.?[A-Za-z0-9.-]+")) ||
+                                    domain.contains("..")) {
+                                    Util.sendMessage(out, ConnectionHandler.gson.toJson(
+                                        mapOf("error" to "invalid Electron cookie domain")))
+                                    return true
+                                }
+                                cookie.append("; Domain=").append(domain)
+                            }
+                            val path = details?.get("path")?.takeIf { it.isJsonPrimitive }
+                                ?.asString
+                            if (path != null) {
+                                if (!path.startsWith("/") || path.contains(';') ||
+                                    path.contains('\r') || path.contains('\n')) {
+                                    Util.sendMessage(out, ConnectionHandler.gson.toJson(
+                                        mapOf("error" to "invalid Electron cookie path")))
+                                    return true
+                                }
+                                cookie.append("; Path=").append(path)
+                            }
+                            if (details?.get("secure")?.asBoolean == true) cookie.append("; Secure")
+                            if (details?.get("httpOnly")?.asBoolean == true) cookie.append("; HttpOnly")
+                            val expiration = details?.get("expirationDate")
+                                ?.takeIf { it.isJsonPrimitive }?.asDouble
+                            if (expiration != null) {
+                                val maxAge = (expiration - System.currentTimeMillis() / 1000.0).toLong()
+                                cookie.append("; Max-Age=").append(maxAge.coerceAtLeast(0))
+                            }
+                            when (details?.get("sameSite")?.takeIf { it.isJsonPrimitive }
+                                ?.asString?.lowercase()) {
+                                "strict" -> cookie.append("; SameSite=Strict")
+                                "lax" -> cookie.append("; SameSite=Lax")
+                                "no_restriction" -> cookie.append("; SameSite=None")
+                            }
+                            cookies.setCookie(url!!, cookie.toString()) { accepted ->
+                                Util.sendMessage(out, ConnectionHandler.gson.toJson(accepted))
+                            }
+                        }
+                        "remove" -> {
+                            val name = m.params?.get("name")?.asString
+                            if (name.isNullOrEmpty() || name.contains(';') || name.contains('=')) {
+                                Util.sendMessage(out, ConnectionHandler.gson.toJson(
+                                    mapOf("error" to "invalid Electron cookie name")))
+                                return true
+                            }
+                            cookies.setCookie(url!!, "$name=; Max-Age=0; Path=/") { accepted ->
+                                Util.sendMessage(out, ConnectionHandler.gson.toJson(accepted))
+                            }
+                        }
+                    }
+                    return true
+                }
+                "reloadWebView", "reloadWebViewIgnoringCache" -> {
+                    val aid = m.params?.get("aid")?.asInt
+                    val id = m.params?.get("id")?.asInt
+                    val a = activities[aid]
+                    val o = overlays[aid]
+                    if (id != null) {
+                        fun reload(view: View?) {
+                            if (view !is WebView) return
+                            if (m.method == "reloadWebViewIgnoringCache") {
+                                ElectronBridge.reloadIgnoringCache(view)
+                            } else {
+                                view.reload()
+                            }
+                        }
+                        if (a != null) {
+                            V0Shared.runOnUIThreadActivityStarted(a) {
+                                reload(it.findViewReimplemented<View>(id))
+                            }
+                        }
+                        if (o != null) {
+                            Util.runOnUIThreadBlocking {
+                                reload(o.root.findViewReimplemented<View>(id))
+                            }
+                        }
+                    }
+                    return true
+                }
+                "stopWebViewLoading" -> {
+                    val aid = m.params?.get("aid")?.asInt
+                    val id = m.params?.get("id")?.asInt
+                    val a = activities[aid]
+                    val o = overlays[aid]
+                    if (id != null) {
+                        fun stop(view: View?) {
+                            if (view is WebView) view.stopLoading()
+                        }
+                        if (a != null) {
+                            V0Shared.runOnUIThreadActivityStarted(a) {
+                                stop(it.findViewReimplemented<View>(id))
+                            }
+                        }
+                        if (o != null) {
+                            Util.runOnUIThreadBlocking {
+                                stop(o.root.findViewReimplemented<View>(id))
                             }
                         }
                     }
@@ -1328,11 +1600,8 @@ class HandleView {
                                     settings.useWideViewPort = enabled
                                     settings.loadWithOverviewMode = enabled
                                     if (enabled) {
-                                        val mobilePlatform = Regex("\\(Linux; Android [^)]*\\)")
-                                        settings.userAgentString = mobilePlatform.replace(
-                                            settings.userAgentString,
-                                            "(Windows NT 10.0; Win64; x64)"
-                                        ).replace(" Mobile ", " ")
+                                        settings.userAgentString = desktopUserAgent(
+                                            settings.userAgentString)
                                     }
                                 }
                             }
@@ -1367,9 +1636,33 @@ class HandleView {
                         val a = activities[aid]
                         val uri = m.params?.get("uri")?.asString
                         if (a != null && id != null && uri != null) {
-                            V0Shared.runOnUIThreadActivityStarted(a) {
-                                it.findViewReimplemented<WebView>(id)?.loadUrl(uri)
+                            val headerObject = m.params?.getAsJsonObject("headers")
+                            val headers = linkedMapOf<String, String>()
+                            if (headerObject != null) {
+                                for ((name, value) in headerObject.entrySet()) {
+                                    if (!value.isJsonPrimitive || !value.asJsonPrimitive.isString) {
+                                        return true
+                                    }
+                                    headers[name] = value.asString
+                                }
                             }
+                            V0Shared.runOnUIThreadActivityStarted(a) {
+                                val webView = it.findViewReimplemented<WebView>(id)
+                                if (headers.isEmpty()) webView?.loadUrl(uri)
+                                else webView?.loadUrl(uri, headers)
+                            }
+                        }
+                    }
+                    return true
+                }
+                "setWebViewUserAgent" -> {
+                    val aid = m.params?.get("aid")?.asInt
+                    val id = m.params?.get("id")?.asInt
+                    val userAgent = m.params?.get("userAgent")?.asString
+                    val activity = activities[aid]
+                    if (activity != null && id != null && userAgent != null) {
+                        V0Shared.runOnUIThreadActivityStarted(activity) {
+                            it.findViewReimplemented<WebView>(id)?.settings?.userAgentString = userAgent
                         }
                     }
                     return true
@@ -1412,6 +1705,29 @@ class HandleView {
                             V0Shared.runOnUIThreadActivityStarted(a) {
                                 it.findViewReimplemented<WebView>(id)?.goForward()
                             }
+                        }
+                    }
+                    return true
+                }
+                "goBackOrForward" -> {
+                    val aid = m.params?.get("aid")?.asInt
+                    val id = m.params?.get("id")?.asInt
+                    val steps = m.params?.get("steps")?.asInt
+                    val activity = activities[aid]
+                    if (activity != null && id != null && steps != null) {
+                        V0Shared.runOnUIThreadActivityStarted(activity) {
+                            it.findViewReimplemented<WebView>(id)?.goBackOrForward(steps)
+                        }
+                    }
+                    return true
+                }
+                "clearHistory" -> {
+                    val aid = m.params?.get("aid")?.asInt
+                    val id = m.params?.get("id")?.asInt
+                    val activity = activities[aid]
+                    if (activity != null && id != null) {
+                        V0Shared.runOnUIThreadActivityStarted(activity) {
+                            it.findViewReimplemented<WebView>(id)?.clearHistory()
                         }
                     }
                     return true

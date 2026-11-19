@@ -1,6 +1,9 @@
 package com.termux.gui.protocol.json.v0
 
 import android.content.Context
+import android.app.DownloadManager
+import android.net.Uri
+import android.os.Environment
 import android.os.Build
 import android.text.method.LinkMovementMethod
 import android.util.Base64
@@ -10,12 +13,17 @@ import android.view.ViewGroup
 import android.view.inputmethod.EditorInfo
 import android.webkit.ConsoleMessage
 import android.webkit.WebView
+import android.webkit.WebViewClient
+import android.webkit.CookieManager
+import android.webkit.URLUtil
 import android.widget.*
 import androidx.appcompat.widget.SwitchCompat
 import androidx.core.widget.NestedScrollView
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import androidx.swiperefreshlayout.widget.SwipeRefreshLayout
+import androidx.webkit.WebViewCompat
+import androidx.webkit.WebViewFeature
 import com.google.android.material.tabs.TabLayout
 import com.termux.gui.ConnectionHandler
 import com.termux.gui.R
@@ -693,6 +701,7 @@ class Create {
                         var id = -1
                         val electronBridge = m.params?.get("electronBridge")
                             ?.takeIf { it.isJsonObject }?.asJsonObject
+                        val profileName = electronBridge?.get("profileName")?.asString
                         val enableJavascript = m.params?.get("enableJavascript")?.asBoolean == true
                         var preloadFetchError: String? = null
                         val bridgePreload = electronBridge?.let { bridge ->
@@ -710,8 +719,12 @@ class Create {
                                 basePreload
                             }
                         } ?: ""
-                        V0Shared.runOnUIThreadActivityStartedBlocking(a) {
+                        if (profileName != null && !WebViewFeature.isFeatureSupported(
+                                WebViewFeature.MULTI_PROFILE)) {
+                            id = -1
+                        } else V0Shared.runOnUIThreadActivityStartedBlocking(a) {
                             val v = NexaWebView(app)
+                            if (profileName != null) WebViewCompat.setProfile(v, profileName)
                             val settings = v.settings
                             if (electronBridge != null || enableJavascript) settings.javaScriptEnabled = true
                             settings.allowFileAccess = false
@@ -724,13 +737,80 @@ class Create {
                             settings.saveFormData = false
                             settings.savePassword = false
                             
+                            var electronPageComplete = false
+                            var electronNavigationGeneration = 0
                             val l = object: WebEventListener {
-                                override fun onNavigation(url: String) {
+                                private fun sendLifecycleEvent(type: String, url: String,
+                                                               isMainFrame: Boolean? = null) {
                                     val map = HashMap<String, Any?>()
                                     map["aid"] = aid
                                     map["id"] = id
                                     map["url"] = url
-                                    eventQueue.offer(ConnectionHandler.Event("webviewNavigation", ConnectionHandler.gson.toJsonTree(map)))
+                                    if (isMainFrame != null) map["isMainFrame"] = isMainFrame
+                                    eventQueue.offer(ConnectionHandler.Event(type,
+                                        ConnectionHandler.gson.toJsonTree(map)))
+                                }
+
+                                override fun onNavigation(url: String) {
+                                    sendLifecycleEvent("webviewNavigation", url)
+                                }
+
+                                override fun onNavigation(url: String, isMainFrame: Boolean?) {
+                                    sendLifecycleEvent("webviewNavigation", url, isMainFrame)
+                                }
+
+                                override fun onPageStarted(url: String) {
+                                    if (electronBridge != null) electronNavigationGeneration++
+                                    sendLifecycleEvent("webviewLoadStarted", url)
+                                }
+
+                                override fun onPageCommitVisible(url: String) {
+                                    sendLifecycleEvent("webviewCommitVisible", url)
+                                }
+
+                                override fun onPageFinished(url: String) {
+                                    sendLifecycleEvent("webviewLoadFinished", url)
+                                }
+
+                                override fun onReceivedTitle(title: String) {
+                                    if (electronBridge == null) return
+                                    val pageUrl = v.url.orEmpty()
+                                    val generation = electronNavigationGeneration
+                                    fun sendTitle(documentTitle: String?) {
+                                        if (v.url.orEmpty() != pageUrl ||
+                                            electronNavigationGeneration != generation) return
+                                        val fileUrl = Uri.parse(pageUrl).scheme == "file"
+                                        val explicitSet = !fileUrl || !documentTitle.isNullOrEmpty()
+                                        val visibleTitle = if (explicitSet) documentTitle ?: title
+                                            else Uri.parse(pageUrl).lastPathSegment ?: title
+                                        val map = HashMap<String, Any?>()
+                                        map["aid"] = aid
+                                        map["id"] = id
+                                        map["title"] = visibleTitle
+                                        map["explicitSet"] = explicitSet
+                                        eventQueue.offer(ConnectionHandler.Event(
+                                            "webviewTitleChanged",
+                                            ConnectionHandler.gson.toJsonTree(map)))
+                                    }
+                                    try {
+                                        v.evaluateJavascript("JSON.stringify(document.title)") { result ->
+                                            val documentTitle = try {
+                                                org.json.JSONTokener(result ?: "null")
+                                                    .nextValue() as? String
+                                            } catch (_: Exception) {
+                                                null
+                                            }
+                                            if (documentTitle == null) {
+                                                android.util.Log.w("NexaElectron",
+                                                    "could not read document title for $pageUrl")
+                                            } else {
+                                                sendTitle(documentTitle)
+                                            }
+                                        }
+                                    } catch (error: Exception) {
+                                        android.util.Log.w("NexaElectron",
+                                            "could not read document title for $pageUrl", error)
+                                    }
                                 }
 
                                 override fun onHTTPError(url: String, code: Int) {
@@ -742,25 +822,59 @@ class Create {
                                     eventQueue.offer(ConnectionHandler.Event("webviewHTTPError", ConnectionHandler.gson.toJsonTree(map)))
                                 }
 
-                                override fun onReceivedError(url: String, description: String, code: Int) {
+                                private fun sendWebViewError(url: String, description: String,
+                                                             code: Int, isMainFrame: Boolean?) {
+                                    if (electronBridge != null) {
+                                        ElectronBridge.finishReloadIgnoringCache(v)
+                                    }
                                     val map = HashMap<String, Any?>()
                                     map["aid"] = aid
                                     map["id"] = id
                                     map["url"] = url
+                                    map["description"] = description
+                                    map["code"] = when (code) {
+                                        WebViewClient.ERROR_UNSUPPORTED_AUTH_SCHEME -> -339
+                                        WebViewClient.ERROR_REDIRECT_LOOP -> -310
+                                        WebViewClient.ERROR_BAD_URL -> -300
+                                        else -> -2
+                                    }
+                                    map["platformErrorCode"] = code
+                                    if (isMainFrame != null) map["isMainFrame"] = isMainFrame
                                     eventQueue.offer(ConnectionHandler.Event("webviewError", ConnectionHandler.gson.toJsonTree(map)))
                                 }
 
+                                override fun onReceivedError(url: String, description: String, code: Int) {
+                                    sendWebViewError(url, description, code, null)
+                                }
+
+                                override fun onReceivedError(url: String, description: String,
+                                                             code: Int, isMainFrame: Boolean?) {
+                                    sendWebViewError(url, description, code, isMainFrame)
+                                }
+
                                 override fun onRenderProcessGone(v: WebView) {
+                                    onRenderProcessGone(v, false)
+                                }
+
+                                override fun onRenderProcessGone(v: WebView, crashed: Boolean) {
                                     if (electronBridge != null) ElectronBridge.remove(v)
                                     a.a?.usedIds?.remove(v.id)
                                     val map = HashMap<String, Any?>()
                                     map["aid"] = aid
                                     map["id"] = id
+                                    map["crashed"] = crashed
                                     eventQueue.offer(ConnectionHandler.Event("webviewDestroyed", ConnectionHandler.gson.toJsonTree(map)))
                                 }
 
                                 override fun onProgressChanged(progress: Int) {
-                                    if (electronBridge != null && progress < 100) return
+                                    if (electronBridge != null && progress >= 100) {
+                                        ElectronBridge.finishReloadIgnoringCache(v)
+                                    }
+                                    if (electronBridge != null) {
+                                        val complete = progress >= 100
+                                        if (complete == electronPageComplete) return
+                                        electronPageComplete = complete
+                                    }
                                     val map = HashMap<String, Any?>()
                                     map["aid"] = aid
                                     map["id"] = id
@@ -797,6 +911,78 @@ class Create {
                             v.webViewClient = GUIWebViewClient(
                                 l, mainFrameErrorsOnly = electronBridge != null)
                             v.webChromeClient = GUIWebChromeClient(l)
+                            v.setDownloadListener { url, userAgent, contentDisposition, mimeType, contentLength ->
+                                val downloadUri = Uri.parse(url)
+                                if (downloadUri.scheme !in setOf("http", "https") ||
+                                    downloadUri.host.isNullOrBlank()) {
+                                    eventQueue.offer(ConnectionHandler.Event(
+                                        "webviewDownloadError",
+                                        ConnectionHandler.gson.toJsonTree(mapOf(
+                                            "aid" to aid,
+                                            "id" to id,
+                                            "url" to url,
+                                            "error" to "only http and https downloads are supported"
+                                        ))
+                                    ))
+                                    return@setDownloadListener
+                                }
+                                val fileName = URLUtil.guessFileName(
+                                    url, contentDisposition, mimeType
+                                ).substringAfterLast('/').substringAfterLast('\\')
+                                    .filterNot { it.isISOControl() }
+                                    .take(240)
+                                    .trim()
+                                    .let { if (it.isBlank() || it == "." || it == "..") "download" else it }
+                                try {
+                                    val request = DownloadManager.Request(Uri.parse(url))
+                                        .setTitle(fileName)
+                                        .setDescription(downloadUri.host)
+                                        .setNotificationVisibility(
+                                            DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED
+                                        )
+                                        .allowScanningByMediaScanner()
+                                        .setAllowedOverMetered(true)
+                                        .setAllowedOverRoaming(false)
+                                        .setDestinationInExternalPublicDir(
+                                            Environment.DIRECTORY_DOWNLOADS, fileName
+                                        )
+                                    if (!userAgent.isNullOrBlank()) {
+                                        request.addRequestHeader("User-Agent", userAgent)
+                                    }
+                                    if (!mimeType.isNullOrBlank()) request.setMimeType(mimeType)
+                                    val cookieManager = if (profileName != null) {
+                                        ProfileStore.getInstance().getProfile(profileName).cookieManager
+                                    } else CookieManager.getInstance()
+                                    cookieManager.getCookie(url)?.let {
+                                        request.addRequestHeader("Cookie", it)
+                                    }
+                                    val downloadId = (app.getSystemService(Context.DOWNLOAD_SERVICE)
+                                        as DownloadManager).enqueue(request)
+                                    eventQueue.offer(ConnectionHandler.Event(
+                                        "webviewDownload",
+                                        ConnectionHandler.gson.toJsonTree(mapOf(
+                                            "aid" to aid,
+                                            "id" to id,
+                                            "downloadId" to downloadId,
+                                            "url" to url,
+                                            "fileName" to fileName,
+                                            "mimeType" to mimeType,
+                                            "contentLength" to contentLength
+                                        ))
+                                    ))
+                                } catch (error: Exception) {
+                                    eventQueue.offer(ConnectionHandler.Event(
+                                        "webviewDownloadError",
+                                        ConnectionHandler.gson.toJsonTree(mapOf(
+                                            "aid" to aid,
+                                            "id" to id,
+                                            "url" to url,
+                                            "fileName" to fileName,
+                                            "error" to (error.message ?: "download could not start")
+                                        ))
+                                    ))
+                                }
+                            }
                             
                             id = Util.generateViewID(rand, it)
                             v.id = id
@@ -807,11 +993,15 @@ class Create {
                                     val ipcEndpoint = electronBridge.get("ipcEndpoint")?.asString
                                     val ipcToken = electronBridge.get("ipcToken")?.asString
                                     val windowId = electronBridge.get("windowId")?.asInt
+                                    val profileName = electronBridge.get("profileName")?.asString
                                     val backgroundThrottling = electronBridge
                                         .get("backgroundThrottling")?.asBoolean ?: true
+                                    val webRequestEnabled = electronBridge
+                                        .get("webRequestEnabled")?.asBoolean ?: false
                                     ElectronBridge.install(
                                         v, origins, bridgePreload, aid, id, eventQueue,
-                                        ipcEndpoint, ipcToken, windowId, backgroundThrottling
+                                        ipcEndpoint, ipcToken, windowId, profileName,
+                                        webRequestEnabled, backgroundThrottling
                                     )
                                 }
                                 if (error != null) {

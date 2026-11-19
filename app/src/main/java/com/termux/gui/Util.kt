@@ -85,9 +85,11 @@ class Util {
          */
         fun sendMessage(w: DataOutputStream, ret: String) {
             val bytes = ret.toByteArray(StandardCharsets.UTF_8)
-            w.writeInt(bytes.size)
-            w.write(bytes)
-            w.flush()
+            synchronized(w) {
+                w.writeInt(bytes.size)
+                w.write(bytes)
+                w.flush()
+            }
         }
 
         /**
